@@ -106,6 +106,20 @@ This is an educational LangChain project demonstrating how to build a research a
 ### Documentation (`docs/`)
 - `blog/` - Blog post series (written as modules are built)
 - Each blog post corresponds to module progression
+- **Keep docs/ clean** - Only official, current documentation goes here
+
+### Temporary Files (`temp/`)
+- **CRITICAL**: All temporary notes, proposals, and scratch work goes in `temp/`
+- `temp/` is gitignored and disposable
+- Use for: brainstorming, proposals not yet implemented, experimental docs
+- **Never commit** proposal documents to docs/ - if implemented, move to official docs
+- **Never clutter** root directory with temporary status files
+
+### Root Directory
+- **Keep minimal**: Only essential project files
+- Status tracking: `DEVELOPMENT_STATUS.md`, `INFRASTRUCTURE_STATUS.md` (consolidate overlapping docs)
+- Core docs: `README.md`, `PRD.md`, `PROJECT_STRUCTURE.md`
+- Never add temporary session info or experimental docs to root
 
 ### Examples (`examples/`)
 - `companies/` - Sample CSV files for testing
@@ -180,6 +194,28 @@ agent_executor = AgentExecutor(
 - Provide troubleshooting tips
 - Link to next steps in learning path
 - Reference relevant LangChain documentation
+
+## File Organization Best Practices
+
+### DO:
+✅ Put proposals in `temp/` directory (gitignored)
+✅ Keep `docs/` for official, current documentation only
+✅ Consolidate overlapping status docs instead of creating new ones
+✅ Use `ARCHITECTURE_SUMMARY.md` for architecture status
+✅ Use `DEVELOPMENT_STATUS.md` for code progress tracking
+✅ Use `INFRASTRUCTURE_STATUS.md` for server setup status
+
+### DON'T:
+❌ Create proposal docs in `docs/` - use `temp/` instead
+❌ Add temporary session files to root directory
+❌ Duplicate information across multiple status files
+❌ Commit experimental documentation to main repo
+❌ Let `docs/` become cluttered with obsolete files
+
+### When in Doubt:
+- Unsure if a doc should be kept? Move to `temp/` first
+- Can always promote from `temp/` to official docs later
+- Better to archive than clutter the main repo
 
 ## Additional Notes
 

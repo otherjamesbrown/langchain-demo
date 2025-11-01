@@ -23,8 +23,7 @@ pip install streamlit streamlit-chat
 ### Example Implementation
 ```python
 import streamlit as st
-from src.agent.research_agent import ResearchAgent
-from src.models.model_factory import get_llm
+from src.research.workflows import full_research_pipeline
 
 st.title("LangChain Research Agent")
 
@@ -33,16 +32,14 @@ st.sidebar.header("Configuration")
 model_type = st.sidebar.selectbox("Model Type", ["local", "openai", "anthropic"])
 
 # Main interface
-uploaded_file = st.file_uploader("Upload CSV file", type="csv")
+company_name = st.text_input("Company Name")
 instructions = st.text_area("Research Instructions", height=150)
 
 if st.button("Run Research"):
-    llm = get_llm(model_type=model_type)
-    agent = ResearchAgent(llm=llm)
-    
     with st.spinner("Processing..."):
-        results = agent.research_companies(
-            csv_path=uploaded_file,
+        company_info, search_ids, processing_run = full_research_pipeline(
+            company_name=company_name,
+            llm_model_type=model_type,
             instructions=instructions
         )
     
@@ -78,20 +75,22 @@ pip install gradio
 ### Example Implementation
 ```python
 import gradio as gr
-from src.agent.research_agent import ResearchAgent
-from src.models.model_factory import get_llm
+from src.research.workflows import full_research_pipeline
 
-def run_research(csv_file, instructions):
-    llm = get_llm(model_type="local")
-    agent = ResearchAgent(llm=llm)
-    results = agent.research_companies(csv_path=csv_file.name, instructions=instructions)
-    return results.to_html()
+def run_research(company_name, instructions, model_type):
+    company_info, search_ids, processing_run = full_research_pipeline(
+        company_name=company_name,
+        llm_model_type=model_type,
+        instructions=instructions
+    )
+    return company_info.model_dump_json(indent=2)
 
 interface = gr.Interface(
     fn=run_research,
     inputs=[
-        gr.File(label="Upload CSV"),
-        gr.Textbox(label="Instructions", lines=5)
+        gr.Textbox(label="Company Name"),
+        gr.Textbox(label="Instructions", lines=5),
+        gr.Dropdown(["local", "openai", "anthropic"], label="Model Type")
     ],
     outputs=gr.HTML(),
     title="LangChain Research Agent"

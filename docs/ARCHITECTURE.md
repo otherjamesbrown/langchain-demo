@@ -60,23 +60,22 @@ This document describes the architecture of the LangChain Research Agent, which 
 
 **Usage**:
 ```python
-from src.agent.research_agent import ResearchAgent
-from src.models.model_factory import get_llm
+from src.research.workflows import full_research_pipeline
 
-# Create agent
-llm = get_llm(model_type="local")
-agent = ResearchAgent(llm=llm, verbose=True)
-
-# Research a company
-result = agent.research_company("BitMovin")
+# Run complete two-phase workflow
+company_info, search_ids, processing_run = full_research_pipeline(
+    company_name="BitMovin",
+    llm_model_type="local",
+    instructions_path="./examples/instructions/research_instructions.md"
+)
 ```
 
-**Agent Workflow**:
-1. Receive research task
-2. Search for general company information
-3. Search for specific data points
-4. Synthesize findings
-5. Extract structured data
+**Research Workflow**:
+1. **Phase 1**: Generate and execute search queries
+2. Store raw search results with metadata
+3. **Phase 2**: Build prompt from instructions + search results
+4. Process through LLM to extract structured data
+5. Validate and store results with full audit trail
 6. Save to database
 
 ### 2. Model Factory (`src/models/model_factory.py`)
@@ -135,20 +134,46 @@ results = web_search_tool("BitMovin industry employees")
 - `SearchResult`: Search API responses
 - `AgentResult`: Agent execution results
 
-**CompanyInfo Fields**:
+**CompanyInfo Fields (core + GTM profiling)**:
 ```python
 class CompanyInfo(BaseModel):
+    # Core firmographics
     company_name: str
     industry: str
     company_size: str
-    revenue: Optional[str]
-    founded: Optional[int]
+    company_size_reason: Optional[str]
     headquarters: str
-    products: List[str]
-    funding_stage: Optional[str]
-    competitors: List[str]
+    founded: Optional[int]
     description: Optional[str]
     website: Optional[str]
+    products: List[str]
+    competitors: List[str]
+    revenue: Optional[str]
+    funding_stage: Optional[str]
+
+    # GTM classifications with evidence
+    growth_stage: Optional[str]
+    growth_stage_reason: Optional[str]
+    industry_vertical: Optional[str]
+    industry_vertical_reason: Optional[str]
+    sub_industry_vertical: Optional[str]
+    sub_industry_vertical_reason: Optional[str]
+    financial_health: Optional[str]
+    financial_health_reason: Optional[str]
+    business_and_technology_adoption: Optional[str]
+    business_and_technology_adoption_reason: Optional[str]
+    primary_workload_philosophy: Optional[str]
+    primary_workload_philosophy_reason: Optional[str]
+    buyer_journey: Optional[str]
+    buyer_journey_reason: Optional[str]
+    budget_maturity: Optional[str]
+    budget_maturity_reason: Optional[str]
+    cloud_spend_capacity: Optional[str]
+    cloud_spend_capacity_reason: Optional[str]
+    procurement_process: Optional[str]
+    procurement_process_reason: Optional[str]
+    key_personas: List[str]
+    key_personas_reason: Optional[str]
 ```
 
 ### 5. Database Layer (`src/database/`)
@@ -269,36 +294,45 @@ MAX_ITERATIONS=10
 ### Basic Usage
 
 ```python
-from src.agent.research_agent import ResearchAgent
-from src.models.model_factory import get_llm
+from src.research.workflows import full_research_pipeline
 
-# Initialize
-llm = get_llm(model_type="local")
-agent = ResearchAgent(llm=llm, verbose=True)
-
-# Research
-result = agent.research_company("BitMovin")
-print(result.final_answer.model_dump_json(indent=2))
+# Research a company
+company_info, search_ids, processing_run = full_research_pipeline(
+    company_name="BitMovin",
+    llm_model_type="local",
+    instructions_path="./examples/instructions/research_instructions.md"
+)
+print(company_info.model_dump_json(indent=2))
 ```
 
-### Batch Research
+### Multi-Model Comparison
 
 ```python
-companies = ["BitMovin", "OpenAI", "Anthropic"]
-results = agent.batch_research(companies)
+from src.research.workflows import phase2_process_multiple_models
+
+# Compare results across different models
+results = phase2_process_multiple_models(
+    company_name="BitMovin",
+    model_configs=[
+        {"model_type": "local", "model_path": "./models/llama.gguf"},
+        {"model_type": "openai", "model_name": "gpt-4"},
+        {"model_type": "anthropic", "model_name": "claude-3-opus-20240229"}
+    ],
+    instructions_path="./examples/instructions/research_instructions.md"
+)
 ```
 
 ### Command Line
 
 ```bash
-# Research single company
-python src/agent/research_agent.py BitMovin
+# Run two-phase research workflow
+python scripts/test_two_phase.py
 
-# With specific model
-python src/agent/research_agent.py BitMovin --model-type openai
+# Phase 1 only (collect searches)
+python scripts/test_two_phase.py --phase 1
 
-# Without database
-python src/agent/research_agent.py BitMovin --no-db
+# Phase 2 with specific model
+python scripts/test_two_phase.py --phase 2 --company BitMovin
 ```
 
 ## Performance Considerations
@@ -351,11 +385,17 @@ def _create_custom_model(**kwargs):
 ### Custom Prompt Engineering
 
 ```python
-class ResearchAgent:
-    # Override system prompt
-    SYSTEM_PROMPT = """
-    Your custom prompt here...
-    """
+# Customize LLM prompts via instructions file
+instructions = """
+Your custom research instructions here...
+Focus on: industry, products, competitors, funding
+"""
+
+company_info, search_ids, processing_run = full_research_pipeline(
+    company_name="BitMovin",
+    llm_model_type="local",
+    instructions=instructions  # Pass custom instructions
+)
 ```
 
 ## Security
@@ -416,4 +456,5 @@ See `docs/SERVER_SETUP.md` for detailed instructions.
 - [ ] Real-time monitoring
 - [ ] API endpoints for external access
 - [ ] Docker containerization
+
 

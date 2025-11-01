@@ -1,307 +1,537 @@
-"""
-Main research agent for gathering company information.
+#!/usr/bin/env python3
+"""Educational research agent built on LangChain's agent runtime.
 
-This module implements a ReAct-style agent that orchestrates web searches
-and structured information extraction using LangChain.
+This module shows how to migrate from the legacy ``create_react_agent`` helper
+to the modern ``create_agent`` factory introduced in LangChain 0.3+. The agent
+follows the ReAct pattern, mixing reasoning with the custom Tavily-powered web
+search tool defined in ``src.tools.web_search``. The implementation focuses on
+teaching:
+
+1. How to prepare chat models for different providers using a factory helper
+2. How to assemble a LangChain agent graph with middleware for safety limits
+3. How to observe intermediate reasoning steps for instructional dashboards
+
+The Streamlit UI imports :class:`ResearchAgent` and calls
+:meth:`ResearchAgent.research_company` to execute a full research loop.
 """
 
-import os
+from __future__ import annotations
+
+import json
+import re
 import time
-from typing import Optional
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from src.models.model_factory import get_llm
-from src.tools.web_search import web_search_tool, TOOLS
-from src.tools.models import CompanyInfo, AgentResult
-from src.database.operations import save_company_info, save_agent_execution
+from langchain.agents import create_agent
+from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
+from langchain.agents.middleware.types import ToolCallRequest
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.prompts import PromptTemplate
+from pydantic import ValidationError
+
+from src.models.model_factory import get_chat_model
+from src.tools.models import CompanyInfo
+from src.tools.web_search import TOOLS
+
+
+@dataclass
+class ResearchAgentResult:
+    """Structured result of a research run for a single company."""
+
+    company_name: str
+    success: bool
+    raw_output: str
+    execution_time_seconds: float
+    iterations: int
+    model_input: Dict[str, Any] = field(default_factory=dict)
+    company_info: Optional[CompanyInfo] = None
+    intermediate_steps: List[Dict[str, Any]] = field(default_factory=list)
+
+
+class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
+    """Middleware that captures intermediate thoughts and tool calls.
+
+    By inheriting from :class:`AgentMiddleware` we can hook into the agent loop
+    without modifying LangChain internals. The Streamlit dashboard displays
+    ``intermediate_steps`` to help learners follow the ReAct cycle.
+    """
+
+    def __init__(self) -> None:
+        self._current_steps: List[Dict[str, Any]] = []
+        self.last_run_steps: List[Dict[str, Any]] = []
+        self._model_calls: int = 0
+        self.last_run_iterations: int = 0
+
+    # ------------------------------------------------------------------
+    # Lifecycle hooks
+    # ------------------------------------------------------------------
+    def before_agent(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
+        """Reset captured state before each agent execution."""
+
+        self._current_steps = []
+        self._model_calls = 0
+        self.last_run_steps = []
+        self.last_run_iterations = 0
+        return None
+
+    def after_model(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
+        """Record every language model call as an iteration step."""
+
+        self._model_calls += 1
+        last_message = state["messages"][-1]
+        self._current_steps.append(
+            {
+                "type": "model",
+                "iteration": self._model_calls,
+                "content": _message_to_text(last_message),
+            }
+        )
+        return None
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Any,
+    ) -> ToolMessage:
+        """Capture tool invocations while delegating execution to LangChain."""
+
+        tool_name = getattr(request.tool, "name", request.tool_call.get("name", "unknown_tool"))
+        tool_args = request.tool_call.get("args", {})
+        response: ToolMessage = handler(request)
+        self._current_steps.append(
+            {
+                "type": "tool",
+                "iteration": self._model_calls,
+                "tool_name": tool_name,
+                "arguments": tool_args,
+                "output": _message_to_text(response),
+            }
+        )
+        return response
+
+    def after_agent(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
+        """Persist steps for access after ``create_agent`` finishes."""
+
+        self.last_run_steps = list(self._current_steps)
+        self.last_run_iterations = self._model_calls
+        return None
+
+    @property
+    def current_steps(self) -> List[Dict[str, Any]]:
+        """Return a shallow copy of the steps captured so far."""
+
+        return list(self._current_steps)
+
+    @property
+    def current_iteration_count(self) -> int:
+        """Expose the number of model calls during the active run."""
+
+        return self._model_calls
 
 
 class ResearchAgent:
-    """
-    Research agent that gathers structured company information using web search.
-    
-    Uses the ReAct pattern: Reasoning → Acting → Observing, iteratively
-    gathering information until complete company data is assembled.
-    """
-    
-    # System prompt for the agent
-    SYSTEM_PROMPT = """You are a company research agent. Your task is to gather comprehensive 
-information about companies from web searches.
+    """High-level interface for running the research workflow via LangChain."""
 
-For each company, you need to extract the following information:
-1. Industry - What industry/sector (e.g., "Software/Video Technology")
-2. Company Size - Employee count range (e.g., "201-500 employees")
-3. Revenue - Annual revenue if available (e.g., "$10M - $50M")
-4. Founded - Year the company was founded (e.g., 2013)
-5. Headquarters - Main office location (e.g., "Vienna, Austria")
-6. Products - List of main products or services offered
-7. Funding - Funding stage or ownership (e.g., "Series C" or "Privately held")
-8. Competitors - List of 3-5 main competitors in the market
-
-Workflow:
-1. Use the web_search_tool to search for general company information
-2. Search for specific facts like company size, revenue, competitors
-3. Gather information from multiple sources when possible
-4. Synthesize the information into a comprehensive answer
-5. If you don't find specific information, acknowledge what's missing
-
-Always be thorough and provide accurate information. When you're done gathering
-all available information, provide a final comprehensive answer.
-"""
-    
     def __init__(
         self,
-        llm=None,
-        model_type: Optional[str] = None,
-        temperature: float = 0.7,
-        max_iterations: int = 10,
+        model_type: str = "local",
         verbose: bool = True,
-        use_database: bool = True
-    ):
-        """
-        Initialize the research agent.
-        
-        Args:
-            llm: Pre-initialized LLM instance. If None, creates one based on model_type
-            model_type: Type of LLM to use ('local', 'openai', 'anthropic')
-            temperature: Sampling temperature for LLM
-            max_iterations: Maximum agent iterations before stopping
-            verbose: Whether to print agent reasoning steps
-            use_database: Whether to save results to database
-        """
-        self.use_database = use_database
-        self.max_iterations = max_iterations
+        max_iterations: int = 10,
+        instructions_path: Optional[str] = None,
+        profiling_guide_path: Optional[str] = None,
+    ) -> None:
+        self.model_type = model_type
         self.verbose = verbose
-        
-        # Initialize LLM
-        if llm is None:
-            self.llm = get_llm(model_type=model_type, temperature=temperature)
-            self.model_type = model_type or os.getenv("MODEL_TYPE", "local")
-        else:
-            self.llm = llm
-            self.model_type = getattr(llm, "model_type", "unknown")
-        
-        # Create agent with ReAct pattern
-        self.agent = self._create_agent()
-        self.agent_executor = self._create_executor()
-    
-    def _create_agent(self):
-        """Create the ReAct agent with prompt and tools."""
-        # Create prompt template
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.SYSTEM_PROMPT),
-            ("user", "{input}"),
-            ("assistant", "{agent_scratchpad}")
-        ])
-        
-        # Create ReAct agent
-        agent = create_react_agent(
-            llm=self.llm,
-            tools=TOOLS,
-            prompt=prompt
-        )
-        
-        return agent
-    
-    def _create_executor(self):
-        """Create agent executor with configuration."""
-        executor = AgentExecutor(
-            agent=self.agent,
-            tools=TOOLS,
-            max_iterations=self.max_iterations,
-            verbose=self.verbose,
-            return_intermediate_steps=True,
-            handle_parsing_errors=True
-        )
-        
-        return executor
-    
-    def research_company(self, company_name: str) -> AgentResult:
-        """
-        Research a single company and extract structured information.
-        
-        Args:
-            company_name: Name of the company to research
-            
-        Returns:
-            AgentResult with company information and execution details
-            
-        Raises:
-            Exception: If agent execution fails
-        """
-        start_time = time.time()
-        
-        # Create research task prompt
-        task = f"Research the company: {company_name}. Find comprehensive information including industry, company size, revenue, founding year, headquarters, products/services, funding stage, and competitors."
-        
+        self.max_iterations = max_iterations
+        self.instructions_path = instructions_path or _default_instruction_path()
+        self.profiling_guide_path = profiling_guide_path or _default_profiling_guide_path()
+
+        self._instructions = self._load_instructions()
+        self._profiling_guide = self._load_profiling_guide()
+        self._instruction_summary = _summarise_markdown(self._instructions)
+        self._classification_reference = _build_classification_reference()
+        self._system_prompt = self._build_system_prompt()
+        self._user_prompt = self._build_user_prompt()
+        self._step_tracker = StepTrackerMiddleware()
+        self._agent = self._build_agent()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def research_company(self, company_name: str) -> ResearchAgentResult:
+        """Execute the ReAct agent for a single company."""
+
+        start_time = time.perf_counter()
+        user_message = self._user_prompt.format(company_name=company_name)
+        messages = [{"role": "user", "content": user_message}]
+        inputs = {"messages": messages}
+        # Capture the exact prompt state for educational transparency in the UI.
+        model_input_payload = {
+            "system_prompt": self._system_prompt,
+            "messages": [message.copy() for message in messages],
+            "instructions_path": self.instructions_path,
+            "profiling_guide_path": self.profiling_guide_path,
+            "instruction_summary": self._instruction_summary,
+            "classification_reference": self._classification_reference,
+        }
+
         try:
-            # Execute agent
-            result = self.agent_executor.invoke({"input": task})
-            
-            # Extract information
-            final_answer = result.get("output", "")
-            intermediate_steps = result.get("intermediate_steps", [])
-            
-            execution_time = time.time() - start_time
-            
-            # Parse structured output if possible
-            company_info = self._parse_output(company_name, final_answer)
-            
-            # Save to database if enabled
-            if self.use_database:
-                try:
-                    save_company_info(company_info)
-                    save_agent_execution(
-                        company_name=company_name,
-                        agent_type="react_agent",
-                        model_type=self.model_type,
-                        success=True,
-                        execution_time_seconds=execution_time,
-                        num_tool_calls=len(intermediate_steps),
-                        final_answer=company_info.model_dump(),
-                        intermediate_steps=[step for step in intermediate_steps]
-                    )
-                except Exception as e:
-                    print(f"Warning: Failed to save to database: {e}")
-            
-            return AgentResult(
-                company_name=company_name,
-                final_answer=company_info,
-                intermediate_steps=intermediate_steps,
-                execution_time=execution_time
+            agent_output = self._agent.invoke(inputs)
+        except Exception as exc:  # noqa: BLE001
+            execution_time = time.perf_counter() - start_time
+            steps = self._step_tracker.last_run_steps or self._step_tracker.current_steps
+            iterations = (
+                self._step_tracker.last_run_iterations
+                or self._step_tracker.current_iteration_count
             )
-            
-        except Exception as e:
-            execution_time = time.time() - start_time
-            
-            # Save failed execution if enabled
-            if self.use_database:
-                try:
-                    save_agent_execution(
-                        company_name=company_name,
-                        agent_type="react_agent",
-                        model_type=self.model_type,
-                        success=False,
-                        execution_time_seconds=execution_time,
-                        error_message=str(e)
-                    )
-                except:
-                    pass
-            
-            raise Exception(f"Agent execution failed: {str(e)}")
-    
-    def _parse_output(self, company_name: str, output: str) -> CompanyInfo:
-        """
-        Parse agent output into structured CompanyInfo.
-        
-        Args:
-            company_name: Name of the company
-            output: Raw agent output string
-            
-        Returns:
-            CompanyInfo Pydantic model
-        """
-        # Try to use Pydantic output parser
-        try:
-            parser = PydanticOutputParser(pydantic_object=CompanyInfo)
-            # For better results, we could use an LLM to reformat the output
-            # For now, create a basic parser
-            return self._extract_info_from_text(company_name, output)
-        except:
-            return self._extract_info_from_text(company_name, output)
-    
-    def _extract_info_from_text(self, company_name: str, text: str) -> CompanyInfo:
-        """
-        Extract structured information from unstructured text.
-        
-        This is a basic implementation. For production, you might want to
-        use an LLM call with a structured output parser to extract the data.
-        
-        Args:
-            company_name: Name of the company
-            text: Unstructured text with company information
-            
-        Returns:
-            CompanyInfo with extracted data
-        """
-        # Basic extraction (this could be improved with an LLM call)
-        # For now, create a minimal CompanyInfo
-        return CompanyInfo(
-            company_name=company_name,
-            industry=self._find_field(text, ["industry", "sector", "vertical"]),
-            company_size=self._find_field(text, ["employees", "company size", "headcount"]),
-            revenue=None,
-            founded=None,
-            headquarters=self._find_field(text, ["headquarters", "based in", "located in"]),
-            products=[],
-            funding_stage=None,
-            competitors=[],
-            description=text[:500] if len(text) > 500 else text
+            return ResearchAgentResult(
+                company_name=company_name,
+                success=False,
+                raw_output=str(exc),
+                execution_time_seconds=execution_time,
+                iterations=iterations,
+                model_input=model_input_payload,
+                intermediate_steps=steps,
+            )
+
+        execution_time = time.perf_counter() - start_time
+        steps = self._step_tracker.last_run_steps or self._step_tracker.current_steps
+        iterations = (
+            self._step_tracker.last_run_iterations
+            or self._step_tracker.current_iteration_count
         )
-    
-    def _find_field(self, text: str, keywords: list[str]) -> str:
-        """Find a field in text using keywords."""
-        text_lower = text.lower()
-        for keyword in keywords:
-            idx = text_lower.find(keyword)
-            if idx != -1:
-                # Extract surrounding context
-                start = max(0, idx - 50)
-                end = min(len(text), idx + 200)
-                return text[start:end].strip()
-        return ""
-    
-    def batch_research(self, company_names: list[str]) -> list[AgentResult]:
-        """
-        Research multiple companies in batch.
-        
-        Args:
-            company_names: List of company names to research
-            
-        Returns:
-            List of AgentResult objects
-        """
-        results = []
-        for company_name in company_names:
+        final_message = _extract_final_ai_message(agent_output.get("messages", []))
+        raw_output = _message_to_text(final_message) if final_message else ""
+
+        company_info = self._parse_company_info(agent_output.get("structured_response"), raw_output, company_name)
+        success = company_info is not None
+
+        return ResearchAgentResult(
+            company_name=company_name,
+            success=success,
+            raw_output=raw_output,
+            execution_time_seconds=execution_time,
+            iterations=iterations,
+            model_input=model_input_payload,
+            company_info=company_info,
+            intermediate_steps=steps,
+        )
+
+    # ------------------------------------------------------------------
+    # Agent construction helpers
+    # ------------------------------------------------------------------
+    def _build_agent(self) -> Any:
+        """Create the LangChain agent graph with safety middleware."""
+
+        chat_model = self._initialise_model()
+
+        middleware = [
+            self._step_tracker,
+            ModelCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
+            ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
+        ]
+
+        response_format = CompanyInfo if self.model_type != "local" else None
+
+        return create_agent(
+            model=chat_model,
+            tools=TOOLS,
+            system_prompt=self._system_prompt,
+            middleware=middleware,
+            response_format=response_format,
+        )
+
+    def _initialise_model(self) -> BaseChatModel:
+        """Load a chat-capable model using the shared factory."""
+
+        # ``get_chat_model`` handles provider selection and environment variables.
+        # Keeping all configuration in one place makes it easier for learners to
+        # swap between local and hosted providers.
+        return get_chat_model(model_type=self.model_type, temperature=0.2, verbose=self.verbose)
+
+    def _build_system_prompt(self) -> str:
+        """Combine research rules with formatting requirements."""
+
+        schema_fields = ", ".join(CompanyInfo.model_fields.keys())
+        return (
+            "You are a focused company research analyst following the ReAct pattern. "
+            "Think step-by-step, decide whether a web search is required, and only "
+            "produce answers grounded in retrieved evidence.\n\n"
+            "Research instructions (GTM playbook summary):\n"
+            f"{self._instruction_summary}\n\n"
+            "Classification reference (choose labels from prompts/company-profiling-guide.md):\n"
+            f"{self._classification_reference}\n\n"
+            "Formatting requirements:\n"
+            "- Return a final answer as JSON matching the CompanyInfo schema.\n"
+            "- If data is unavailable, use null or an empty list rather than guessing.\n"
+            "- Include concise text in the description summarising the findings.\n"
+            "- Cite URLs inline when referencing specific claims.\n"
+            "- For every GTM classification (growth_stage, company_size, industry_vertical, "
+            "sub_industry_vertical, financial_health, business_and_technology_adoption, "
+            "primary_workload_philosophy, buyer_journey, budget_maturity, "
+            "cloud_spend_capacity, procurement_process, key_personas), provide a "
+            "corresponding *_reason field that explains the evidence used.\n\n"
+            "CompanyInfo schema keys (complete set, order not important):\n"
+            f"{schema_fields}\n"
+        )
+
+    def _build_user_prompt(self) -> PromptTemplate:
+        """Create the human message template sent to the agent."""
+
+        template = (
+            "Research the organisation named {company_name}.\n"
+            "Follow the provided instructions, deliberate about missing data, and "
+            "call the web_search_tool whenever you need fresh context."
+        )
+        return PromptTemplate.from_template(template)
+
+    def _load_instructions(self) -> str:
+        """Load markdown instructions that guide the research workflow."""
+
+        instruction_path = Path(self.instructions_path)
+        if not instruction_path.exists():
+            raise FileNotFoundError(
+                "Research instructions not found. Update instructions_path to point to a markdown file."
+            )
+        return instruction_path.read_text(encoding="utf-8").strip()
+
+    def _load_profiling_guide(self) -> str:
+        """Load the GTM company profiling guide for classification definitions."""
+
+        guide_path = Path(self.profiling_guide_path)
+        if not guide_path.exists():
+            raise FileNotFoundError(
+                "Company profiling guide not found. Update profiling_guide_path to a markdown file."
+            )
+        return guide_path.read_text(encoding="utf-8").strip()
+
+    # ------------------------------------------------------------------
+    # Parsing helpers
+    # ------------------------------------------------------------------
+    def _parse_company_info(
+        self,
+        structured_response: Any,
+        raw_output: str,
+        company_name: str,
+    ) -> Optional[CompanyInfo]:
+        """Convert agent output into :class:`CompanyInfo` when possible."""
+
+        if isinstance(structured_response, CompanyInfo):
+            return structured_response
+
+        if isinstance(structured_response, dict):
+            structured_response.setdefault("company_name", company_name)
             try:
-                result = self.research_company(company_name)
-                results.append(result)
-            except Exception as e:
-                print(f"Failed to research {company_name}: {e}")
+                return CompanyInfo.model_validate(structured_response)
+            except ValidationError:
+                pass
+
+        try:
+            candidate = json.loads(raw_output)
+            if isinstance(candidate, dict):
+                candidate.setdefault("company_name", company_name)
+                return CompanyInfo.model_validate(candidate)
+        except (json.JSONDecodeError, ValidationError):
+            pass
+
+        fallback = _fallback_company_info(raw_output, company_name)
+        if fallback:
+            return fallback
+
+        return None
+
+
+def _fallback_company_info(raw_output: str, company_name: str) -> Optional[CompanyInfo]:
+    """Extract best-effort company info from unstructured model output."""
+
+    if not raw_output.strip():
+        return None
+
+    def extract_text(label: str) -> str:
+        pattern = re.compile(rf"{label}\s*[:\-]\s*(.+)", re.IGNORECASE)
+        match = pattern.search(raw_output)
+        if match:
+            value = match.group(1).strip()
+            value = value.split("\n")[0].strip()
+            return value.rstrip("., ")
+        return ""
+
+    def extract_list(label: str) -> list[str]:
+        text = extract_text(label)
+        if not text:
+            return []
+        items = re.split(r",|;|\n|\-\s", text)
+        cleaned = [item.strip() for item in items if item and item.strip()]
+        # Deduplicate while preserving order
+        seen = set()
+        ordered: list[str] = []
+        for item in cleaned:
+            if item.lower() in seen:
                 continue
-        return results
+            seen.add(item.lower())
+            ordered.append(item)
+        return ordered
+
+    def extract_year(label: str) -> Optional[int]:
+        pattern = re.compile(rf"{label}\s*[:\-]\s*(\d{4})", re.IGNORECASE)
+        match = pattern.search(raw_output)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+        return None
+
+    industry = extract_text("Industry") or "Unknown"
+    company_size = extract_text("Company Size") or "Unknown"
+    headquarters = extract_text("Headquarters") or "Unknown"
+    founded = extract_year("Founded")
+    products = extract_list("Products")
+    competitors = extract_list("Competitors")
+    description = extract_text("Company Description") or raw_output[:500].strip()
+    website = extract_text("Website")
+    revenue = extract_text("Revenue") or None
+    funding_stage = extract_text("Funding Stage") or None
+
+    try:
+        return CompanyInfo.model_validate(
+            {
+                "company_name": company_name,
+                "industry": industry,
+                "company_size": company_size,
+                "headquarters": headquarters,
+                "founded": founded,
+                "products": products,
+                "competitors": competitors,
+                "description": description,
+                "website": website or None,
+                "revenue": revenue,
+                "funding_stage": funding_stage,
+            }
+        )
+    except ValidationError:
+        return None
 
 
-# Main entry point for command-line usage
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Research company information")
-    parser.add_argument("company", help="Company name to research")
-    parser.add_argument("--model-type", choices=["local", "openai", "anthropic"], default="local")
-    parser.add_argument("--verbose", action="store_true", default=True)
-    parser.add_argument("--no-db", action="store_true", help="Don't save to database")
-    
-    args = parser.parse_args()
-    
-    # Create agent
-    agent = ResearchAgent(
-        model_type=args.model_type,
-        verbose=args.verbose,
-        use_database=not args.no_db
+# ----------------------------------------------------------------------
+# Utility helpers
+# ----------------------------------------------------------------------
+
+def _default_instruction_path() -> str:
+    """Return the default path to the GTM-aligned research instructions."""
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    return str(project_root / "prompts" / "gtm.md")
+
+
+def _default_profiling_guide_path() -> str:
+    """Return the default path to the company profiling guide markdown file."""
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    return str(project_root / "prompts" / "company-profiling-guide.md")
+
+
+def _summarise_markdown(content: str, max_lines: int = 28) -> str:
+    """Extract a concise bullet list from a markdown document.
+
+    We keep the summary short to avoid exceeding the context window while
+    still surfacing the instructional intent of the markdown files.
+    """
+
+    lines: list[str] = []
+    for raw_line in content.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped[0].isdigit() and stripped[1:2] == ".":
+            lines.append(stripped)
+        elif stripped.startswith(('-', '*')):
+            lines.append(stripped.lstrip('-* ').strip())
+        if len(lines) >= max_lines:
+            break
+
+    if not lines:
+        # Fallback to the first few non-empty lines if no bullets were found.
+        lines = [line.strip() for line in content.splitlines() if line.strip()][:max_lines]
+
+    return "\n".join(lines)
+
+
+def _build_classification_reference() -> str:
+    """Return concise GTM classification options derived from the profiling guide."""
+
+    sections: dict[str, str] = {
+        "Growth Stage": "Pre-Seed/Idea | Startup | Scale-Up | Mature/Enterprise",
+        "Company Size": "Micro/Small (<50) | SMB (50-500) | Mid-Market (500-1000) | Enterprise (>1000)",
+        "Industry Vertical": (
+            "SaaS (SMB/Scale) | SaaS (Enterprise Scale) | Media & Entertainment | Gaming | "
+            "E-commerce & Retail | AdTech/MarTech | FinTech | Healthcare & Life Sciences | "
+            "EdTech | Government & Public Sector | Manufacturing/Industrial & IoT | "
+            "Telecommunications & Networking | Energy & Utilities | Web3/Blockchain | "
+            "Professional Services | Transportation & Logistics"
+        ),
+        "Financial Health": (
+            "Bootstrapped/Indie | VC-Funded (Early) | VC-Funded (Growth) | PE-Backed | "
+            "Public (Profitable) | Public (Unprofitable)"
+        ),
+        "Budget Maturity": "Ad Hoc Spend | Team Budget | Central IT Budget | CCoE/Governance",
+        "Cloud Spend Capacity": "< $5K/mo | $5K-$50K/mo | $50K-$250K/mo | $250K+/mo",
+        "Procurement Process": "Minimal/Self-Service | Lightweight Review | Formal Review | Enterprise Procurement",
+        "Business & Technology Adoption": (
+            "Digital Laggards | Digitally-Adopting | Digitally-Transforming | Tech-Enabled Service Businesses | "
+            "Digital-Native (SMB/Scale) | Digital-Native (Enterprise Scale) | Deep Tech & R&D-Driven"
+        ),
+        "Buyer Journey": "Practitioner-Led | Organization-Led | Partner-Led | Hybrid",
+        "Primary Workload Philosophy": (
+            "Performance-Intensive | Distributed & Edge-Native | Reliability & Simplicity | "
+            "Storage & Data-Centric | Orchestration-Native | Cost-Optimization & Efficiency"
+        ),
+        "Key Personas": "Deciders | Approvers/Influencers | Users/Practitioners | Partners",
+    }
+
+    reference_lines = [
+        f"- {name}: {options}"
+        for name, options in sections.items()
+    ]
+    reference_lines.append(
+        "- Always accompany each classification with a *_reason field citing evidence (news, filings, job posts, etc.)."
     )
-    
-    # Research company
-    print(f"\nResearching {args.company}...\n")
-    result = agent.research_company(args.company)
-    
-    # Display results
-    print("\n" + "="*60)
-    print("Research Results")
-    print("="*60)
-    print(f"\nCompany: {result.company_name}")
-    print(f"Execution time: {result.execution_time:.2f}s")
-    print(f"\n{result.final_answer.model_dump_json(indent=2)}")
+
+    return "\n".join(reference_lines)
+
+
+def _extract_final_ai_message(messages: List[BaseMessage]) -> Optional[AIMessage]:
+    """Grab the last AI message from the agent trace."""
+
+    for message in reversed(messages):
+        if isinstance(message, AIMessage):
+            return message
+    return None
+
+
+def _message_to_text(message: BaseMessage | ToolMessage | None) -> str:
+    """Safely convert LangChain message objects into plain text."""
+
+    if message is None:
+        return ""
+
+    content = message.content
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        text_chunks = []
+        for part in content:
+            if isinstance(part, dict):
+                text_chunks.append(part.get("text", ""))
+        return "\n".join(chunk for chunk in text_chunks if chunk)
+
+    return str(content)
 

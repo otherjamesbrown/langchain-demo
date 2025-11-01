@@ -34,8 +34,31 @@ class Company(Base):
     # Company details
     industry = Column(String(255), nullable=True)
     company_size = Column(String(100), nullable=True)
+    company_size_reason = Column(Text, nullable=True)
     headquarters = Column(String(255), nullable=True)
     founded = Column(Integer, nullable=True)
+
+    # GTM and profiling classifications
+    growth_stage = Column(String(100), nullable=True)
+    growth_stage_reason = Column(Text, nullable=True)
+    industry_vertical = Column(String(255), nullable=True)
+    industry_vertical_reason = Column(Text, nullable=True)
+    sub_industry_vertical = Column(String(255), nullable=True)
+    sub_industry_vertical_reason = Column(Text, nullable=True)
+    financial_health = Column(String(100), nullable=True)
+    financial_health_reason = Column(Text, nullable=True)
+    business_and_technology_adoption = Column(String(255), nullable=True)
+    business_and_technology_adoption_reason = Column(Text, nullable=True)
+    primary_workload_philosophy = Column(String(255), nullable=True)
+    primary_workload_philosophy_reason = Column(Text, nullable=True)
+    buyer_journey = Column(String(100), nullable=True)
+    buyer_journey_reason = Column(Text, nullable=True)
+    budget_maturity = Column(String(100), nullable=True)
+    budget_maturity_reason = Column(Text, nullable=True)
+    cloud_spend_capacity = Column(String(100), nullable=True)
+    cloud_spend_capacity_reason = Column(Text, nullable=True)
+    procurement_process = Column(String(100), nullable=True)
+    procurement_process_reason = Column(Text, nullable=True)
     
     # Financial information
     revenue = Column(String(100), nullable=True)
@@ -44,6 +67,8 @@ class Company(Base):
     # Products and market
     products = Column(JSON, nullable=True)  # List of products
     competitors = Column(JSON, nullable=True)  # List of competitors
+    key_personas = Column(JSON, nullable=True)
+    key_personas_reason = Column(Text, nullable=True)
     
     # Metadata
     description = Column(Text, nullable=True)
@@ -196,43 +221,6 @@ class ValidationResult(Base):
         return f"<ValidationResult(id={self.id}, run_id={self.processing_run_id}, type='{self.validation_type}')>"
 
 
-class AgentExecution(Base):
-    """
-    SQLAlchemy model for tracking agent execution runs.
-    
-    Stores high-level information about agent runs including
-    execution time, success status, and result summaries.
-    """
-    
-    __tablename__ = "agent_executions"
-    
-    # Primary key
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # Execution details
-    company_name = Column(String(255), nullable=False, index=True)
-    agent_type = Column(String(100), nullable=True)  # e.g., 'react_agent'
-    model_type = Column(String(100), nullable=True)  # e.g., 'local', 'openai'
-    
-    # Execution results
-    success = Column(Integer, default=1, nullable=False)  # 1 = success, 0 = failure
-    execution_time_seconds = Column(Float, nullable=True)
-    num_tool_calls = Column(Integer, nullable=True)
-    
-    # Agent output
-    final_answer = Column(JSON, nullable=True)  # Structured company info
-    intermediate_steps = Column(JSON, nullable=True)  # Agent reasoning steps
-    
-    # Error tracking
-    error_message = Column(Text, nullable=True)
-    
-    # Timestamp
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
-    def __repr__(self):
-        return f"<AgentExecution(id={self.id}, company='{self.company_name}')>"
-
-
 class LLMCallLog(Base):
     """
     SQLAlchemy model for tracking individual LLM API calls.
@@ -250,10 +238,9 @@ class LLMCallLog(Base):
     # Model information
     model_type = Column(String(100), nullable=False, index=True)  # local, openai, anthropic, gemini
     model_name = Column(String(255), nullable=False)  # Actual model identifier
-    
+
     # Call metadata
     call_type = Column(String(100), nullable=True)  # e.g., 'invoke', 'stream', 'batch'
-    agent_execution_id = Column(Integer, ForeignKey('agent_executions.id'), nullable=True, index=True)
     
     # Token usage
     prompt_tokens = Column(Integer, nullable=False, default=0)

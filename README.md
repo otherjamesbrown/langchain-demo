@@ -4,20 +4,23 @@ A production-ready LangChain agent for automated company research that runs on L
 
 ## Overview
 
-This project implements a research agent that:
-- Loads company data from CSV files
-- Performs web searches for company information
-- Summarizes findings using local or remote LLMs
-- Stores results in a SQLite database
+This project implements a two-phase research architecture that:
+- **Phase 1:** Generates and executes comprehensive web searches for company information
+- **Phase 2:** Processes search results through LLMs to extract structured data
 - Supports multiple model providers (local Llama 8B, OpenAI, Anthropic, Google Gemini)
+- Stores results in a SQLite database with full audit trails
+- Enables model comparison and testing without re-searching
 - Includes comprehensive monitoring and logging
 
 ## Features
 
+- **Two-Phase Architecture**: Separate search collection from LLM processing
+- **Cost-Efficient**: Search once, process with multiple models
+- **Model Comparison**: Test different models/prompts on identical data
 - **Local LLM Support**: Run Llama 8B quantized models locally on GPU
-- **Remote Model Support**: Use OpenAI, Anthropic, or Google Gemini APIs as alternatives
+- **Remote Model Support**: Use OpenAI, Anthropic, or Google Gemini APIs
 - **Web Search Integration**: Multiple search API providers (Tavily, Serper, etc.)
-- **Database Storage**: SQLite database for research results
+- **Database Storage**: SQLite database with full metadata and validation
 - **Monitoring**: LangSmith integration and comprehensive logging
 - **Flexible Configuration**: Environment-based configuration
 
@@ -59,9 +62,9 @@ cp config/env.example .env
 # Place in models/ directory
 ```
 
-6. **Run the agent**
+6. **Run the two-phase research workflow**
 ```bash
-python src/agent/research_agent.py
+python scripts/test_two_phase.py
 ```
 
 ## Configuration
@@ -84,45 +87,67 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed directory layout.
 
 ## Usage
 
-### Basic Usage
+### Phase 1: Collect Search Results
 
 ```python
-from src.agent.research_agent import ResearchAgent
+from src.research.workflows import phase1_collect_searches
+
+# Generate queries and execute searches
+search_ids = phase1_collect_searches(
+    company_name="Acme Corporation",
+    instructions_path="./examples/instructions/research_instructions.md"
+)
+print(f"Collected {len(search_ids)} search results")
+```
+
+### Phase 2: Process with LLM
+
+```python
+from src.research.workflows import phase2_process_with_llm
 from src.models.model_factory import get_llm
 
-# Initialize LLM
+# Process searches with a single model
 llm = get_llm(model_type="local", model_path="./models/llama.gguf")
+company_info, processing_run = phase2_process_with_llm(
+    company_name="Acme Corporation",
+    llm=llm,
+    instructions_path="./examples/instructions/research_instructions.md"
+)
+print(f"Extracted: {company_info.company_name}")
+```
 
-# Create agent
-agent = ResearchAgent(llm=llm)
+### Full Pipeline
 
-# Run research on CSV file
-results = agent.research_companies(
-    csv_path="./examples/companies/sample_companies.csv",
+```python
+from src.research.workflows import full_research_pipeline
+
+# Run both phases in sequence
+company_info, search_ids, processing_run = full_research_pipeline(
+    company_name="Acme Corporation",
+    llm_model_type="local",
+    instructions_path="./examples/instructions/research_instructions.md"
+)
+```
+
+### Compare Multiple Models
+
+```python
+from src.research.workflows import phase2_process_multiple_models
+
+# Test different models on the same search results
+results = phase2_process_multiple_models(
+    company_name="Acme Corporation",
+    model_configs=[
+        {"model_type": "local", "model_path": "./models/llama.gguf"},
+        {"model_type": "openai", "model_name": "gpt-4"},
+        {"model_type": "anthropic", "model_name": "claude-3-opus-20240229"}
+    ],
     instructions_path="./examples/instructions/research_instructions.md"
 )
 
-# Access results
-for company, summary in results.items():
-    print(f"{company}: {summary}")
-```
-
-### Advanced Configuration
-
-```python
-from src.agent.research_agent import ResearchAgent
-from src.utils.monitoring import LangSmithCallback
-
-# Configure monitoring
-callbacks = [LangSmithCallback()]
-
-# Create agent with custom configuration
-agent = ResearchAgent(
-    llm=llm,
-    max_iterations=10,
-    verbose=True,
-    callbacks=callbacks
-)
+# Compare results
+for result in results:
+    print(f"{result['model']}: {result['company_info'].company_name}")
 ```
 
 ## Testing
@@ -139,12 +164,26 @@ pytest tests/test_agent.py -v
 
 ## Documentation
 
+### Setup Guides
+- [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md) - Linode server setup guide
+- [docs/SERVER_SETUP_GCP.md](docs/SERVER_SETUP_GCP.md) - GCP server setup guide
+- `config/env.example` - Configuration template
+
+### Architecture & Status
 - [PRD.md](PRD.md) - Product Requirements Document
 - [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Project structure
-- [PROJECT_STATUS.md](PROJECT_STATUS.md) - Overall project status
-- [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) - Infrastructure setup status (Linode & GCP)
+- [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) - Infrastructure setup status
 - [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) - Application development progress
-- `config/env.example` - Configuration template
+
+### Monitoring & UI
+- [docs/UI_MONITORING.md](docs/UI_MONITORING.md) - Streamlit dashboard for LLM monitoring
+- [docs/LLM_LOGGING_GUIDE.md](docs/LLM_LOGGING_GUIDE.md) - LLM call logging system
+- [docs/STREAMLIT_ACCESS.md](docs/STREAMLIT_ACCESS.md) - Dashboard access guide
+- **Dashboard URL:** http://172.234.181.156:8501 ✅
+
+### Technical Documentation
+- [docs/LLM_COMPONENTS.md](docs/LLM_COMPONENTS.md) - LLM component architecture
+- [docs/UI_OPTIONS.md](docs/UI_OPTIONS.md) - UI framework options
 
 ## Contributing
 

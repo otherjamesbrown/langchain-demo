@@ -89,7 +89,7 @@ class LLMLogger:
                     response=response[:5000] if response and len(response) > 5000 else response,  # Truncate long responses
                     response_length=len(response) if response else None,
                     success=True,
-                    metadata=metadata or {}
+                    extra_metadata=metadata or {}
                 )
                 
                 db_session.add(log_entry)
@@ -160,7 +160,7 @@ class LLMLogger:
                     generation_time_seconds=0.0,
                     success=False,
                     error_message=error_message[:1000],  # Truncate long errors
-                    metadata=metadata or {}
+                    extra_metadata=metadata or {}
                 )
                 
                 db_session.add(log_entry)

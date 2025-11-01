@@ -6,16 +6,17 @@ company information, search history, and agent execution records.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy.orm import Session
 from src.database.schema import (
     Company,
     SearchHistory,
-    AgentExecution,
     get_session,
     create_database
 )
-from src.tools.models import CompanyInfo
+
+if TYPE_CHECKING:
+    from src.tools.models import CompanyInfo
 
 
 def init_database():
@@ -23,7 +24,7 @@ def init_database():
     create_database()
 
 
-def save_company_info(company_info: CompanyInfo, session: Optional[Session] = None) -> Company:
+def save_company_info(company_info: "CompanyInfo", session: Optional[Session] = None) -> Company:
     """
     Save company information to the database.
     
@@ -49,7 +50,7 @@ def save_company_info(company_info: CompanyInfo, session: Optional[Session] = No
         if existing:
             # Update existing record
             for key, value in company_info.model_dump().items():
-                if key in ["products", "competitors"]:
+                if key in ["products", "competitors", "key_personas"]:
                     setattr(existing, key, value if value else [])
                 else:
                     setattr(existing, key, value)
@@ -61,6 +62,7 @@ def save_company_info(company_info: CompanyInfo, session: Optional[Session] = No
             # Handle list fields
             company_dict["products"] = company_dict.get("products", [])
             company_dict["competitors"] = company_dict.get("competitors", [])
+            company_dict["key_personas"] = company_dict.get("key_personas", [])
             
             new_company = Company(**company_dict)
             session.add(new_company)
@@ -132,6 +134,8 @@ def save_search_history(
     execution_time_ms: Optional[float] = None,
     success: bool = True,
     error_message: Optional[str] = None,
+    raw_results: Optional[List[dict]] = None,
+    results_summary: Optional[str] = None,
     session: Optional[Session] = None
 ) -> SearchHistory:
     """
@@ -145,6 +149,8 @@ def save_search_history(
         execution_time_ms: Execution time in milliseconds
         success: Whether search was successful
         error_message: Error message if failed
+        raw_results: Optional list of raw search result payloads
+        results_summary: Optional human-readable summary of results
         session: Optional existing database session
         
     Returns:
@@ -164,7 +170,9 @@ def save_search_history(
             num_results=num_results,
             execution_time_ms=execution_time_ms,
             success=1 if success else 0,
-            error_message=error_message
+            error_message=error_message,
+            raw_results=raw_results,
+            results_summary=results_summary
         )
         session.add(search_record)
         session.commit()
@@ -177,90 +185,4 @@ def save_search_history(
             session.close()
 
 
-def save_agent_execution(
-    company_name: str,
-    agent_type: str,
-    model_type: str,
-    success: bool,
-    execution_time_seconds: Optional[float] = None,
-    num_tool_calls: Optional[int] = None,
-    final_answer: Optional[dict] = None,
-    intermediate_steps: Optional[List[dict]] = None,
-    error_message: Optional[str] = None,
-    session: Optional[Session] = None
-) -> AgentExecution:
-    """
-    Save agent execution record to database.
-    
-    Args:
-        company_name: Company being researched
-        agent_type: Type of agent used (e.g., 'react_agent')
-        model_type: Model type used (e.g., 'local', 'openai')
-        success: Whether execution was successful
-        execution_time_seconds: Total execution time
-        num_tool_calls: Number of tool calls made
-        final_answer: Final structured output from agent
-        intermediate_steps: Agent reasoning steps
-        error_message: Error message if failed
-        session: Optional existing database session
-        
-    Returns:
-        AgentExecution database record
-    """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
-    try:
-        execution_record = AgentExecution(
-            company_name=company_name,
-            agent_type=agent_type,
-            model_type=model_type,
-            success=1 if success else 0,
-            execution_time_seconds=execution_time_seconds,
-            num_tool_calls=num_tool_calls,
-            final_answer=final_answer,
-            intermediate_steps=intermediate_steps,
-            error_message=error_message
-        )
-        session.add(execution_record)
-        session.commit()
-        return execution_record
-    except Exception as e:
-        session.rollback()
-        raise Exception(f"Failed to save agent execution: {str(e)}")
-    finally:
-        if should_close:
-            session.close()
-
-
-def get_recent_executions(
-    limit: int = 10,
-    session: Optional[Session] = None
-) -> List[AgentExecution]:
-    """
-    Get recent agent executions.
-    
-    Args:
-        limit: Maximum number of records to return
-        session: Optional existing database session
-        
-    Returns:
-        List of recent AgentExecution records
-    """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
-    try:
-        return session.query(AgentExecution).order_by(
-            AgentExecution.created_at.desc()
-        ).limit(limit).all()
-    finally:
-        if should_close:
-            session.close()
 

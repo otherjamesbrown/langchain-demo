@@ -9,6 +9,7 @@ URL: http://host:8501/Agent
 
 import sys
 from pathlib import Path
+import json
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -24,6 +25,7 @@ import time
 from datetime import datetime
 
 from src.database.schema import get_session, create_database
+from src.database.operations import save_company_info
 
 # Page config
 st.set_page_config(
@@ -172,10 +174,8 @@ if execute_button:
                     stage2 = st.empty()
                     stage2.info("2️⃣ Running ReAct agent loop...")
 
-                    # Create log area for verbose output
                     if verbose_mode:
-                        log_area = st.empty()
-                        logs = []
+                        st.caption("Verbose logging enabled – capturing agent reasoning and tool usage.")
 
                     try:
                         # Execute research
@@ -209,7 +209,15 @@ if execute_button:
                             "timestamp": datetime.now()
                         }
 
-                        stage4.success("4️⃣ ✅ Stored to database")
+                        if result.company_info:
+                            try:
+                                save_company_info(result.company_info, session=session)
+                                stage4.success("4️⃣ ✅ Stored to database")
+                            except Exception as db_error:
+                                stage4.error("4️⃣ ❌ Failed to store in database")
+                                st.error(f"Database error: {db_error}")
+                        else:
+                            stage4.warning("4️⃣ ⚠️ No structured company info to store")
 
                         # Display summary
                         st.divider()
@@ -249,6 +257,58 @@ if execute_button:
                             if info.founded:
                                 st.write(f"**Founded:** {info.founded}")
 
+                            # Highlight core GTM classifications so learners see key signals upfront.
+                            gtm_snapshot_fields = [
+                                (
+                                    "Growth Stage",
+                                    info.growth_stage,
+                                    info.growth_stage_reason,
+                                ),
+                                (
+                                    "Company Size",
+                                    info.company_size,
+                                    info.company_size_reason,
+                                ),
+                                (
+                                    "Industry Vertical",
+                                    info.industry_vertical,
+                                    info.industry_vertical_reason,
+                                ),
+                                (
+                                    "Sub-Industry Vertical",
+                                    info.sub_industry_vertical,
+                                    info.sub_industry_vertical_reason,
+                                ),
+                                (
+                                    "Financial Health",
+                                    info.financial_health,
+                                    info.financial_health_reason,
+                                ),
+                                (
+                                    "Business & Technology Adoption",
+                                    info.business_and_technology_adoption,
+                                    info.business_and_technology_adoption_reason,
+                                ),
+                            ]
+
+                            populated_snapshot_fields = [
+                                (label, value, reason)
+                                for label, value, reason in gtm_snapshot_fields
+                                if value or reason
+                            ]
+
+                            if populated_snapshot_fields:
+                                st.write("**Go-To-Market Snapshot:**")
+                                snapshot_columns = st.columns(2)
+                                for index, (label, value, reason) in enumerate(populated_snapshot_fields):
+                                    target_column = snapshot_columns[index % len(snapshot_columns)]
+                                    with target_column:
+                                        st.markdown(
+                                            f"**{label}:** {value or 'Not identified'}"
+                                        )
+                                        if reason:
+                                            st.caption(f"Reasoning: {reason}")
+
                             if info.products:
                                 with st.expander("Products"):
                                     for product in info.products:
@@ -259,6 +319,55 @@ if execute_button:
                                     for competitor in info.competitors:
                                         st.write(f"- {competitor}")
 
+                            gtm_fields = [
+                                ("Growth Stage", info.growth_stage, info.growth_stage_reason),
+                                (
+                                    "Industry Vertical",
+                                    info.industry_vertical,
+                                    info.industry_vertical_reason,
+                                ),
+                                (
+                                    "Sub-Industry Vertical",
+                                    info.sub_industry_vertical,
+                                    info.sub_industry_vertical_reason,
+                                ),
+                                ("Financial Health", info.financial_health, info.financial_health_reason),
+                                (
+                                    "Business & Technology Adoption",
+                                    info.business_and_technology_adoption,
+                                    info.business_and_technology_adoption_reason,
+                                ),
+                                (
+                                    "Primary Workload Philosophy",
+                                    info.primary_workload_philosophy,
+                                    info.primary_workload_philosophy_reason,
+                                ),
+                                ("Buyer Journey", info.buyer_journey, info.buyer_journey_reason),
+                                ("Budget Maturity", info.budget_maturity, info.budget_maturity_reason),
+                                ("Cloud Spend Capacity", info.cloud_spend_capacity, info.cloud_spend_capacity_reason),
+                                ("Procurement Process", info.procurement_process, info.procurement_process_reason),
+                            ]
+
+                            has_gtm_data = any(value for _, value, _ in gtm_fields) or bool(info.key_personas)
+
+                            if has_gtm_data:
+                                with st.expander("Go-To-Market Profiling"):
+                                    for label, value, reason in gtm_fields:
+                                        if not value and not reason:
+                                            continue
+                                        st.markdown(f"**{label}:** {value or 'Not identified'}")
+                                        if reason:
+                                            st.caption(f"Reasoning: {reason}")
+
+                                    if info.key_personas:
+                                        st.markdown("**Key Personas:**")
+                                        for persona in info.key_personas:
+                                            st.write(f"- {persona}")
+                                        if info.key_personas_reason:
+                                            st.caption(
+                                                f"Why these personas matter: {info.key_personas_reason}"
+                                            )
+
                         # Show raw result details
                         with st.expander("View Raw Result"):
                             st.json({
@@ -266,8 +375,48 @@ if execute_button:
                                 "company_name": result.company_name,
                                 "raw_output": result.raw_output,
                                 "iterations": result.iterations,
-                                "execution_time_seconds": result.execution_time_seconds
+                                "execution_time_seconds": result.execution_time_seconds,
+                                "model_input": result.model_input,
                             })
+
+                        if verbose_mode and result.intermediate_steps:
+                            with st.expander("🧠 Agent Reasoning & Tool Calls", expanded=False):
+                                for step in result.intermediate_steps:
+                                    step_type = step.get("type")
+                                    iteration = step.get("iteration", "?")
+                                    if step_type == "model":
+                                        content = step.get("content", "").strip()
+                                        if not content:
+                                            content = "_No model content returned_"
+                                        st.markdown(f"**Model Iteration {iteration}:**\n\n{content}")
+                                    elif step_type == "tool":
+                                        tool_name = step.get("tool_name", "unknown_tool")
+                                        arguments = step.get("arguments", {}) or {}
+                                        query_text = arguments.get("query") or arguments.get("input") or "(no query provided)"
+                                        st.markdown(f"**Tool Call {iteration}: `{tool_name}`**")
+                                        st.code(str(query_text), language="text")
+
+                                        output_text = (step.get("output", "") or "").strip()
+                                        raw_marker = "RAW_RESULTS_JSON:"
+                                        formatted_text = output_text
+                                        raw_json_text: str | None = None
+                                        if raw_marker in output_text:
+                                            formatted_text, raw_json_text = output_text.split(raw_marker, 1)
+                                            formatted_text = formatted_text.strip()
+                                            raw_json_text = raw_json_text.strip()
+
+                                        if formatted_text:
+                                            st.caption("Tool formatted response:")
+                                            st.text(formatted_text[:1000] + ("…" if len(formatted_text) > 1000 else ""))
+
+                                        if raw_json_text:
+                                            st.caption("Raw provider response:")
+                                            try:
+                                                st.json(json.loads(raw_json_text))
+                                            except json.JSONDecodeError:
+                                                st.text(raw_json_text[:2000] + ("…" if len(raw_json_text) > 2000 else ""))
+                                        elif not formatted_text:
+                                            st.caption("Tool returned no content")
 
                     except Exception as e:
                         stage2.error("2️⃣ ❌ Agent execution failed")

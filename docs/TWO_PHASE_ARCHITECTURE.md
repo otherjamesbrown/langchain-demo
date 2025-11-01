@@ -222,13 +222,13 @@ runs = session.query(ProcessingRun).filter_by(company_name="BitMovin").all()
 comparison = compare_processing_runs(runs)
 ```
 
-## Migration from Old Architecture
+## Architecture Benefits
 
-The old ReAct agent (`ResearchAgent`) is still available for quick/iterative research. The new architecture is recommended for:
+This two-phase architecture is designed for:
 - Production workflows
 - Model testing and validation
 - Cost-sensitive operations
 - Reproducible research
-
-You can use both architectures in the same codebase - they share the same database schema (backward compatible).
+- Prompt engineering and iteration
+- Model comparison and benchmarking
 

@@ -2,14 +2,7 @@
 
 ## ✅ Completed Components
 
-### Core Agent Architecture
-- ✅ **Research Agent** (`src/agent/research_agent.py`)
-  - ReAct pattern implementation
-  - Iterative web search and extraction
-  - Structured output generation
-  - **Note:** Original single-phase agent (still available)
-
-### Two-Phase Research Architecture ⭐ NEW
+### Two-Phase Research Architecture
 - ✅ **Phase 1: Search Collection** (`src/research/`)
   - Query Generator (`query_generator.py`) - Structured query templates
   - Search Executor (`search_executor.py`) - Executes searches, stores raw JSON results
@@ -47,16 +40,15 @@
 - ✅ **Schema** (`src/database/schema.py`)
   - Company table
   - Search history table (enhanced with raw_results JSON)
-  - Agent execution table
-  - **ResearchQuery** table (structured search queries) ⭐ NEW
-  - **ProcessingRun** table (LLM processing runs with full metadata) ⭐ NEW
-  - **ValidationResult** table (validation scores and metrics) ⭐ NEW
-  - **LLMCallLog** table (individual LLM call tracking) ⭐ NEW
+  - **ResearchQuery** table (structured search queries)
+  - **ProcessingRun** table (LLM processing runs with full metadata)
+  - **ValidationResult** table (validation scores and metrics)
+  - **LLMCallLog** table (individual LLM call tracking)
 
 - ✅ **Operations** (`src/database/operations.py`)
   - Save/retrieve company data
   - Track search history
-  - Log agent executions
+  - Database initialization and management
 
 ### Utilities
 - ✅ **Logging** (`src/utils/logging.py`)
@@ -74,8 +66,7 @@
 - ✅ Architecture documentation
 - ✅ Server setup guide
 - ✅ UI options guide
-- ✅ **Two-Phase Architecture Guide** (`docs/TWO_PHASE_ARCHITECTURE.md`) ⭐ NEW
-- ✅ **Architecture Proposal** (`docs/ARCHITECTURE_PROPOSAL.md`) ⭐ NEW
+- ✅ **Two-Phase Architecture Guide** (`docs/TWO_PHASE_ARCHITECTURE.md`)
 
 ### Examples
 - ✅ Sample CSV with companies
@@ -86,10 +77,7 @@
 ```
 langchain-demo/
 ├── src/
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   └── research_agent.py          ✅ Complete (Original ReAct agent)
-│   ├── research/                       ⭐ NEW - Two-Phase Architecture
+│   ├── research/                       ✅ Two-Phase Architecture
 │   │   ├── __init__.py
 │   │   ├── query_generator.py         ✅ Complete (Phase 1)
 │   │   ├── search_executor.py         ✅ Complete (Phase 1)
@@ -123,12 +111,10 @@ langchain-demo/
 │   ├── SERVER_SETUP_GCP.md            ✅ Complete
 │   ├── UI_OPTIONS.md                  ✅ Complete
 │   ├── ARCHITECTURE.md                ✅ Complete
-│   ├── TWO_PHASE_ARCHITECTURE.md      ⭐ NEW
-│   └── ARCHITECTURE_PROPOSAL.md       ⭐ NEW
+│   └── TWO_PHASE_ARCHITECTURE.md      ⭐ NEW
 ├── scripts/
 │   ├── install.sh                     ✅ Complete
-│   ├── test_companies.py              ✅ Complete
-│   └── test_two_phase.py              ⭐ NEW
+│   └── test_two_phase.py              ✅ Complete
 ├── config/
 │   └── env.example                    ✅ Complete
 └── requirements.txt                   ✅ Complete
@@ -136,28 +122,7 @@ langchain-demo/
 
 ## 🔄 Data Flow
 
-### Original Architecture (ReAct Agent)
-```
-User Input (Company Name)
-    ↓
-Research Agent (ReAct)
-    ↓
-LLM (Local/Remote)
-    ↓
-┌─────────────────────┬─────────────────────┐
-│                     │                     │
-Web Search Tool    Agent Reasoning    Structured Extractor
-    ↓                     ↓                     ↓
-Search Results    Decision Making    Pydantic Models
-    ↓                     ↓                     ↓
-└─────────────────────────┴─────────────────────┘
-                ↓
-        Database Storage
-                ↓
-        Agent Results
-```
-
-### Two-Phase Architecture ⭐ NEW
+### Two-Phase Architecture
 ```
 Phase 1: Search Collection
 CSV → Generate Queries → Execute Searches → Store Raw Results (JSON)
@@ -223,25 +188,7 @@ Before running, configure:
 
 ## 🎯 Usage Examples
 
-### Original ReAct Agent (Quick Research)
-```python
-from src.agent.research_agent import ResearchAgent
-from src.models.model_factory import get_llm
-
-# Create agent
-llm = get_llm(model_type="local")
-agent = ResearchAgent(llm=llm, verbose=True)
-
-# Research company
-result = agent.research_company("BitMovin")
-
-# Access results
-print(f"Industry: {result.final_answer.industry}")
-print(f"Size: {result.final_answer.company_size}")
-print(f"Competitors: {result.final_answer.competitors}")
-```
-
-### Two-Phase Architecture (Recommended for Production)
+### Basic Research Workflow
 ```python
 from src.research.workflows import phase1_collect_searches, phase2_process_with_llm
 
@@ -279,14 +226,11 @@ results = phase2_process_multiple_models(
 ## ✅ Status: Architecture Complete
 
 ### Core Features
-- ✅ Single-phase ReAct agent (quick research)
 - ✅ Two-phase architecture (production-ready, testable)
 - ✅ Model comparison and validation
 - ✅ Full audit trails and reproducibility
 - ✅ Cost-efficient workflows
-
-### Recommended Approach
-- **Quick/Iterative Research**: Use original `ResearchAgent`
-- **Production/Testing**: Use two-phase architecture (`src/research/`)
+- ✅ Search once, process with multiple models
+- ✅ Comprehensive monitoring and logging
 
 The foundation is now in place for a production-ready, testable LangChain research agent!

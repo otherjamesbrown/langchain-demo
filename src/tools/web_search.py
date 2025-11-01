@@ -5,12 +5,16 @@ This module provides a LangChain tool that agents can use to search the web
 for company information, with support for result formatting and filtering.
 """
 
+import json
+import logging
 import os
 from typing import Optional
+
 from langchain_core.tools import tool
 import requests
 
 from src.tools.models import SearchResult
+from src.database.operations import save_search_history
 
 
 class TavilySearchAPI:
@@ -87,6 +91,10 @@ class TavilySearchAPI:
 
 # Global Tavily client instance
 _tavily_client: Optional[TavilySearchAPI] = None
+_serper_client: Optional["SerperSearchAPI"] = None
+
+
+logger = logging.getLogger(__name__)
 
 
 def _get_tavily_client() -> TavilySearchAPI:
@@ -95,6 +103,14 @@ def _get_tavily_client() -> TavilySearchAPI:
     if _tavily_client is None:
         _tavily_client = TavilySearchAPI()
     return _tavily_client
+
+
+def _get_serper_client() -> "SerperSearchAPI":
+    """Get or create global Serper client instance."""
+    global _serper_client
+    if _serper_client is None:
+        _serper_client = SerperSearchAPI()
+    return _serper_client
 
 
 @tool
@@ -126,8 +142,13 @@ def web_search_tool(query: str) -> str:
         query="BitMovin employee count video streaming company"
         Returns formatted results from multiple sources
     """
-    client = _get_tavily_client()
-    results = client.search(query=query, max_results=5)
+    provider = get_search_api_provider()
+    if provider == "serper":
+        client = _get_serper_client()
+        results = client.search(query=query, num=5)
+    else:
+        client = _get_tavily_client()
+        results = client.search(query=query, max_results=5)
     
     # Format results for agent consumption
     formatted_results = []
@@ -139,10 +160,26 @@ def web_search_tool(query: str) -> str:
             f"Content: {result.content}\n"
         )
     
-    if not formatted_results:
-        return "No search results found."
-    
-    return "\n---\n".join(formatted_results)
+    formatted_output = "\n---\n".join(formatted_results) if formatted_results else "No search results found."
+    raw_results_payload = [result.model_dump() for result in results]
+    raw_results_json = json.dumps({
+        "provider": provider,
+        "results": raw_results_payload,
+    }, indent=2)
+
+    try:
+        save_search_history(
+            query=query,
+            company_name=None,
+            search_provider=provider,
+            num_results=len(results),
+            raw_results=raw_results_payload,
+            results_summary=formatted_output,
+        )
+    except Exception as log_error:  # noqa: BLE001
+        logger.warning("Failed to persist search history for query '%s': %s", query, log_error)
+
+    return f"{formatted_output}\n\nRAW_RESULTS_JSON:\n{raw_results_json}"
 
 
 # Create a list of tools for agent usage

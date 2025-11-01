@@ -6,14 +6,21 @@ allowing easy switching between local models (Llama) and remote APIs (OpenAI, An
 """
 
 import os
+from pathlib import Path
 from typing import Literal
 from langchain_core.language_models import BaseLanguageModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 # Import LLM providers
 try:
     from langchain_community.llms import LlamaCpp
 except ImportError:
     LlamaCpp = None
+
+try:
+    from langchain_community.chat_models import ChatLlamaCpp
+except ImportError:
+    ChatLlamaCpp = None
 
 try:
     from langchain_openai import ChatOpenAI
@@ -81,6 +88,53 @@ def get_llm(
         raise ValueError(f"Unknown model type: {model_type}")
 
 
+def get_chat_model(
+    model_type: ModelType | None = None,
+    model_path: str | None = None,
+    temperature: float = 0.7,
+    **kwargs
+) -> BaseChatModel:
+    """Create a chat-compatible LLM instance for agent workflows.
+
+    This helper mirrors :func:`get_llm` but guarantees the returned
+    model implements the chat model interface required by LangChain's
+    agent factory. It keeps configuration in one place so educational
+    examples can highlight the difference between text-completion and
+    chat-first APIs.
+
+    Args:
+        model_type: Provider identifier. Falls back to ``MODEL_TYPE`` env var.
+        model_path: Local model path when using the ``local`` provider.
+        temperature: Sampling temperature.
+        **kwargs: Provider-specific overrides (e.g., ``n_gpu_layers`` for LlamaCpp).
+
+    Returns:
+        A :class:`BaseChatModel` ready for agent execution.
+
+    Raises:
+        ValueError: If configuration is incomplete.
+        ImportError: If the required provider package is missing.
+    """
+    if model_type is None:
+        model_type = os.getenv("MODEL_TYPE", "local").lower()
+
+    if model_type not in ["local", "openai", "anthropic", "gemini"]:
+        raise ValueError(f"Invalid model_type: {model_type}")
+
+    temp = float(os.getenv("TEMPERATURE", temperature))
+
+    if model_type == "local":
+        return _create_local_chat_model(model_path, temp, **kwargs)
+    if model_type == "openai":
+        return _create_openai_llm(temp, **kwargs)
+    if model_type == "anthropic":
+        return _create_anthropic_llm(temp, **kwargs)
+    if model_type == "gemini":
+        return _create_gemini_llm(temp, **kwargs)
+
+    raise ValueError(f"Unknown model type: {model_type}")
+
+
 def _create_local_llm(
     model_path: str | None,
     temperature: float,
@@ -95,6 +149,15 @@ def _create_local_llm(
     # Get model path from env or parameter
     if model_path is None:
         model_path = os.getenv("MODEL_PATH")
+
+    if not model_path:
+        default_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "models"
+            / "llama-2-7b-chat.Q4_K_M.gguf"
+        )
+        if default_path.exists():
+            model_path = str(default_path)
     
     if not model_path:
         raise ValueError(
@@ -116,6 +179,50 @@ def _create_local_llm(
     }
     
     return LlamaCpp(**llama_params)
+
+
+def _create_local_chat_model(
+    model_path: str | None,
+    temperature: float,
+    **kwargs
+) -> BaseChatModel:
+    """Create a local ChatLlamaCpp instance for agent interactions."""
+    if ChatLlamaCpp is None:
+        raise ImportError(
+            "ChatLlamaCpp is not installed. Install with: pip install llama-cpp-python"
+        )
+
+    if model_path is None:
+        model_path = os.getenv("MODEL_PATH")
+
+    if not model_path:
+        default_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "models"
+            / "llama-2-7b-chat.Q4_K_M.gguf"
+        )
+        if default_path.exists():
+            model_path = str(default_path)
+
+    if not model_path:
+        raise ValueError(
+            "Model path is required for local chat LLM. "
+            "Set MODEL_PATH environment variable or pass model_path parameter"
+        )
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+
+    llama_params = {
+        "model_path": model_path,
+        "temperature": temperature,
+        "n_ctx": kwargs.get("n_ctx", 4096),
+        "n_gpu_layers": kwargs.get("n_gpu_layers", -1),
+        "verbose": kwargs.get("verbose", False),
+        "n_batch": kwargs.get("n_batch", 512),
+    }
+
+    return ChatLlamaCpp(**llama_params)
 
 
 def _create_openai_llm(temperature: float, **kwargs) -> BaseLanguageModel:
