@@ -109,7 +109,8 @@ pip install --upgrade pip
 
 ```bash
 # Install llama-cpp-python with CUDA support
-CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
+# Note: Use GGML_CUDA (LLAMA_CUBLAS is deprecated)
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
 
 # Install remaining dependencies
 pip install -r requirements.txt

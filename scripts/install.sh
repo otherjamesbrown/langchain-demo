@@ -115,7 +115,8 @@ echo "Step 7: Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
     if [ "$HAS_GPU" = true ]; then
         echo "Installing with GPU support..."
-        sudo -u langchain bash -c "source venv/bin/activate && CMAKE_ARGS=\"-DLLAMA_CUBLAS=on\" pip install llama-cpp-python"
+        # Note: Use GGML_CUDA (LLAMA_CUBLAS is deprecated)
+        sudo -u langchain bash -c "source venv/bin/activate && CMAKE_ARGS=\"-DGGML_CUDA=on\" pip install llama-cpp-python"
         sudo -u langchain bash -c "source venv/bin/activate && pip install -r requirements.txt"
     else
         echo "Installing CPU-only version..."
