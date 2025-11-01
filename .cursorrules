@@ -1,0 +1,191 @@
+# LangChain Research Agent - Cursor Rules
+
+## Project Overview
+This is an educational LangChain project demonstrating how to build a research agent on Linode with local LLMs. The project progresses through modules 01-06, teaching LangChain concepts step-by-step.
+
+## Code Style & Standards
+
+### Python
+- Use Python 3.10+ type hints for all functions
+- Follow PEP 8 style guide
+- Maximum line length: 100 characters
+- Use descriptive variable and function names
+- Include docstrings for all functions, classes, and modules
+
+### Educational Focus
+- **All code must be educational** - include comments explaining LangChain concepts
+- Each file should have a header comment explaining what it teaches
+- Use progressive complexity - start simple, build up
+- Make concepts explicit rather than implicit
+
+### File Structure
+- Modules are numbered: `01_basics`, `02_tools`, etc.
+- Each module has a README.md explaining prerequisites and learning objectives
+- Code examples should be runnable independently
+- Use `__init__.py` files to document module purpose
+
+## LangChain Best Practices
+
+### Prompts
+- Always use `PromptTemplate` or `ChatPromptTemplate` (not raw strings)
+- Include clear variable names in templates
+- Use system prompts for agent instructions
+- Document prompt engineering decisions in comments
+
+### Tools
+- Create well-documented tool functions
+- Include clear descriptions for tool schemas (agents use these!)
+- Handle errors gracefully in tools
+- Add type hints to tool inputs/outputs
+
+### Agents
+- Use appropriate agent types for the task
+- Include `max_iterations` to prevent infinite loops
+- Add `return_intermediate_steps=True` for debugging/learning
+- Use verbose mode in examples to show agent reasoning
+
+### Monitoring
+- Always include basic logging/callbacks in examples
+- Use `StdOutCallbackHandler` for educational visibility
+- Consider LangSmith for advanced monitoring
+- Track token usage when using API-based models
+
+## Documentation Standards
+
+### Blog Posts
+- Located in `docs/blog/`
+- Named: `##-descriptive-name.md`
+- Include code examples with explanations
+- Reference related source files in `src/`
+- Provide step-by-step instructions
+- Include troubleshooting sections
+
+### Code Comments
+- Explain **why**, not just **what**
+- Reference LangChain concepts explicitly
+- Include links to relevant documentation
+- Comment complex logic and non-obvious decisions
+
+### README Files
+- Each module needs a README.md
+- Include prerequisites, learning objectives, and usage examples
+- Link to related blog posts
+- Provide troubleshooting guidance
+
+## Development Workflow
+
+### Module Progression
+1. Start with `01_basics` and work sequentially through `06_complete`
+2. Each module builds on previous concepts
+3. Test code as you build it
+4. Write corresponding blog post after code is working
+
+### Testing
+- Write tests alongside code (in `tests/` directory)
+- Test individual components before integration
+- Use example data from `examples/` directory
+- Verify both local and remote model paths work
+
+### Code Examples
+- Make examples self-contained and runnable
+- Include error handling for common issues
+- Use environment variables for configuration
+- Provide both simple and complete examples
+
+## File Organization
+
+### Source Code (`src/`)
+- `01_basics/` - Fundamental concepts (prompts, chains, local LLM)
+- `02_tools/` - Creating and using tools
+- `03_agents/` - Building agents
+- `04_data/` - Loading CSV and markdown data
+- `05_monitoring/` - Callbacks and LangSmith
+- `06_complete/` - Full research agent
+- `utils/` - Shared utilities (models, database, monitoring)
+
+### Documentation (`docs/`)
+- `blog/` - Blog post series (written as modules are built)
+- Each blog post corresponds to module progression
+
+### Examples (`examples/`)
+- `companies/` - Sample CSV files for testing
+- `instructions/` - Sample markdown instruction files
+
+## Configuration
+
+### Environment Variables
+- Use `.env` file for configuration (see `config/env.example`)
+- Never commit `.env` file
+- Document all required environment variables
+- Provide sensible defaults where possible
+
+### Model Support
+- Support both local (LlamaCpp) and remote (OpenAI, Anthropic) models
+- Use abstraction layer in `src/utils/models.py`
+- Make model switching easy via configuration
+- Handle model loading errors gracefully
+
+## Key Principles
+
+1. **Educational First**: Every piece of code should teach something
+2. **Progressive Learning**: Build complexity gradually
+3. **Working Examples**: All code should be functional and testable
+4. **Clear Documentation**: Explain concepts, not just syntax
+5. **Best Practices**: Show how to do things right, not just how they work
+
+## Common Patterns
+
+### Model Loading
+```python
+# Use abstraction from utils
+from src.utils.models import get_llm
+
+llm = get_llm(model_type="local", model_path="./models/llama.gguf")
+```
+
+### Prompt Templates
+```python
+from langchain_core.prompts import PromptTemplate
+
+template = "Research information about {company_name}"
+prompt = PromptTemplate(template=template, input_variables=["company_name"])
+```
+
+### Agent Creation
+```python
+from langchain.agents import AgentExecutor, create_react_agent
+
+agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=tools,
+    verbose=True,
+    max_iterations=10
+)
+```
+
+## When Writing Code
+
+- Always import from `langchain_core` for base components
+- Use `langchain_community` for community integrations
+- Prefer `langchain_openai` or `langchain_anthropic` for specific providers
+- Include try/except blocks for external API calls
+- Add logging for debugging and learning
+
+## When Writing Blog Posts
+
+- Start with context - what we're learning and why
+- Show code examples with explanations
+- Include expected outputs/results
+- Provide troubleshooting tips
+- Link to next steps in learning path
+- Reference relevant LangChain documentation
+
+## Additional Notes
+
+- This is a public Linode GitHub repo - code quality matters
+- Focus on clarity and education over cleverness
+- Test on actual Linode GPU instances when possible
+- Consider both beginners and intermediate developers
+- Keep examples minimal but complete
+
