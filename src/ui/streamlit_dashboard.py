@@ -489,19 +489,13 @@ Queue-it"""
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            # Load agent
-            with st.spinner("Loading research agent..."):
+            # Load research workflow
+            with st.spinner("Initializing research workflow..."):
                 try:
-                    from src.agent.research_agent import ResearchAgent
-
-                    agent = ResearchAgent(
-                        model_type=model_type,
-                        verbose=verbose_mode,
-                        max_iterations=max_iterations
-                    )
-                    st.success(f"✅ Agent initialized with {model_type} model")
+                    from src.research.workflows import full_research_pipeline
+                    st.success(f"✅ Research workflow ready with {model_type} model")
                 except Exception as e:
-                    st.error(f"❌ Failed to initialize agent: {e}")
+                    st.error(f"❌ Failed to initialize workflow: {e}")
                     st.code(str(e))
                     st.stop()
 
@@ -516,13 +510,13 @@ Queue-it"""
                     with stages_container:
                         st.write("**Execution Stages:**")
 
-                        # Stage 1: Initialization
+                        # Stage 1: Phase 1 - Search Collection
                         stage1 = st.empty()
-                        stage1.info("1️⃣ Initializing research task...")
+                        stage1.info("1️⃣ Phase 1: Collecting search results...")
 
-                        # Stage 2: Agent execution
+                        # Stage 2: Phase 2 - LLM Processing
                         stage2 = st.empty()
-                        stage2.info("2️⃣ Running ReAct agent loop...")
+                        stage2.info("2️⃣ Phase 2: Processing with LLM...")
 
                         # Create log area for verbose output
                         if verbose_mode:
@@ -533,35 +527,31 @@ Queue-it"""
                             # Execute research
                             start_time = time.time()
 
-                            # Stage 1 complete
-                            stage1.success("1️⃣ ✅ Research task initialized")
+                            # Run full two-phase pipeline
+                            company_info, search_ids, processing_run = full_research_pipeline(
+                                company_name=company,
+                                llm_model_type=model_type
+                            )
 
-                            # Stage 2: Execute agent (this includes ReAct loop)
-                            result = agent.research_company(company)
+                            stage1.success("1️⃣ ✅ Phase 1: Search collection complete")
+                            stage2.success("2️⃣ ✅ Phase 2: LLM processing complete")
 
-                            stage2.success("2️⃣ ✅ Agent execution complete")
-
-                            # Stage 3: Parsing
+                            # Stage 3: Database storage
                             stage3 = st.empty()
-                            stage3.info("3️⃣ Parsing results...")
+                            stage3.info("3️⃣ Saving results...")
+                            stage3.success("3️⃣ ✅ Results saved to database")
 
                             end_time = time.time()
                             execution_time = end_time - start_time
 
-                            stage3.success("3️⃣ ✅ Results parsed")
-
-                            # Stage 4: Database storage
-                            stage4 = st.empty()
-                            stage4.info("4️⃣ Storing to database...")
-
                             # Store result in session state
                             st.session_state.agent_results[company] = {
-                                "result": result,
+                                "company_info": company_info,
+                                "search_ids": search_ids,
+                                "processing_run": processing_run,
                                 "execution_time": execution_time,
                                 "timestamp": datetime.now()
                             }
-
-                            stage4.success("4️⃣ ✅ Stored to database")
 
                             # Display summary
                             st.divider()
@@ -576,15 +566,15 @@ Queue-it"""
                                 st.metric("Execution Time", f"{execution_time:.2f}s")
 
                             with col3:
-                                if result.company_info:
-                                    st.metric("Fields Found", len([f for f in vars(result.company_info).values() if f]))
+                                if company_info:
+                                    st.metric("Fields Found", len([f for f in vars(company_info).values() if f]))
                                 else:
                                     st.metric("Fields Found", "N/A")
 
                             # Display company info if available
-                            if result.company_info:
+                            if company_info:
                                 st.write("**Company Information:**")
-                                info = result.company_info
+                                info = company_info
 
                                 if info.company_name:
                                     st.write(f"**Name:** {info.company_name}")
@@ -612,14 +602,9 @@ Queue-it"""
                                             st.write(f"- {competitor}")
 
                             # Show raw result details
-                            with st.expander("View Raw Result"):
-                                st.json({
-                                    "success": result.success,
-                                    "company_name": result.company_name,
-                                    "raw_output": result.raw_output,
-                                    "iterations": result.iterations,
-                                    "execution_time_seconds": result.execution_time_seconds
-                                })
+                            with st.expander("View Raw Details"):
+                                st.write("**Processing Run ID:**", processing_run.id if processing_run else "N/A")
+                                st.write("**Search IDs:**", ", ".join(map(str, search_ids)) if search_ids else "N/A")
 
                         except Exception as e:
                             stage2.error("2️⃣ ❌ Agent execution failed")
@@ -644,7 +629,7 @@ Queue-it"""
         st.divider()
         st.header("📈 Results Summary")
 
-        successful = sum(1 for r in st.session_state.agent_results.values() if "result" in r)
+        successful = sum(1 for r in st.session_state.agent_results.values() if "company_info" in r)
         failed = len(st.session_state.agent_results) - successful
 
         col1, col2, col3, col4 = st.columns(4)
@@ -669,7 +654,7 @@ Queue-it"""
         for company, data in st.session_state.agent_results.items():
             results_data.append({
                 "Company": company,
-                "Status": "✅ Success" if "result" in data else "❌ Failed",
+                "Status": "✅ Success" if "company_info" in data else "❌ Failed",
                 "Time (s)": f"{data.get('execution_time', 0):.2f}",
                 "Timestamp": data.get('timestamp', datetime.now()).strftime('%H:%M:%S'),
             })
