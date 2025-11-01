@@ -48,6 +48,10 @@ ssh -i ~/.ssh/id_ed25519_langchain langchain@172.234.181.156
 - **Status:** ✅ Repository created and code pushed
 - **Local git:** ✅ Initialized, committed, and pushed to main branch
 - **Server clone:** ✅ Successfully cloned to `/home/langchain/langchain-demo`
+- **GitHub Authentication:** ✅ Personal Access Token configured
+  - **Storage:** `~/.git-credentials` (git credential helper)
+  - **Scope:** repo access for pushing/pulling
+  - **Note:** Token stored securely, never committed to git
 
 ## Python Environment (Linode Server)
 
@@ -62,7 +66,11 @@ ssh -i ~/.ssh/id_ed25519_langchain langchain@172.234.181.156
 
 - **URL:** http://172.234.181.156:8501
 - **Status:** ✅ Running (when started)
-- **Current Version:** Check sidebar for version number
+- **Current Version:** v1.2.0 (displayed in sidebar)
+- **Pages:**
+  - **🤖 Call Local LLM** - Interactive interface to call local LLM and see metrics
+  - **📊 Monitor Calls** - View historical LLM call logs and statistics
+- **Navigation:** Sidebar radio buttons to switch between pages
 - **Restart Command:**
   ```bash
   ssh linode-langchain-user "cd ~/langchain-demo && lsof -ti:8501 | xargs kill -9 2>/dev/null; source venv/bin/activate && nohup streamlit run src/ui/streamlit_dashboard.py --server.address 0.0.0.0 --server.port 8501 --server.headless true > /tmp/streamlit.log 2>&1 &"

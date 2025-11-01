@@ -327,24 +327,37 @@ export OMP_NUM_THREADS=8
 
 ## Step 13: Launch Monitoring Dashboard (Optional)
 
-The Streamlit dashboard provides a web interface for monitoring LLM calls and token usage:
+The Streamlit dashboard provides a web interface for monitoring LLM calls and token usage.
+
+### Quick Start (Recommended)
 
 ```bash
 cd ~/langchain-demo
-source venv/bin/activate
+bash scripts/start_streamlit.sh
+```
 
-# Install Streamlit if not already installed
+This script automatically handles port cleanup and starts the dashboard on port 8501.
+
+### Manual Start Process
+
+After code changes, use this consistent process:
+
+```bash
+# 1. Kill existing process on port 8501
+lsof -ti:8501 | xargs kill -9 2>/dev/null || echo "Port 8501 is free"
+
+# 2. Install Streamlit if not already installed
 pip install streamlit pandas
 
-# Start the dashboard
-streamlit run src/ui/streamlit_dashboard.py \
-  --server.address 0.0.0.0 \
-  --server.port 8501 \
-  --server.headless true
+# 3. Start the dashboard
+cd ~/langchain-demo
+source venv/bin/activate
+streamlit run src/ui/streamlit_dashboard.py --server.port 8501
 ```
 
 **Access the dashboard:**
-- URL: http://172.234.181.156:8501
+- **Local:** http://localhost:8501
+- **Remote:** http://172.234.181.156:8501
 - **Note:** Ensure Linode Cloud Firewall has an **INBOUND** rule allowing TCP port 8501
 
 **Features:**

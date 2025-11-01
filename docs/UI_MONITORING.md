@@ -1,15 +1,33 @@
-# LLM Call Monitoring UI
+# LLM Dashboard UI
 
-This document describes the Streamlit dashboard for monitoring LLM calls, token usage, and performance metrics.
+This document describes the Streamlit dashboard for interacting with and monitoring LLM calls, token usage, and performance metrics.
 
 ## Overview
 
-The Streamlit dashboard provides a real-time interface to view and analyze LLM API calls, including:
+The Streamlit dashboard provides a multi-page interface with:
+
+### Page 1: Call Local LLM 🤖
+Interactive interface for:
+- Calling your local LLM with custom prompts
+- Viewing responses in real-time
+- Seeing token usage metrics (prompt, completion, total tokens)
+- Monitoring generation time and tokens/second
+- Logging calls to the database
+- Response history
+
+### Page 2: Monitor Calls 📊
+Monitoring interface for:
+- Viewing historical LLM call logs
 - Token usage statistics (prompt, completion, total)
 - Generation time and performance metrics
 - Call history with detailed logs
 - Filtering by model type, date range, etc.
 - Success/failure tracking
+
+### Navigation
+- **Sidebar Navigation**: Radio buttons to switch between pages
+- **Version Number**: Displayed at bottom of sidebar (e.g., "Dashboard v1.2.0")
+- Use the sidebar to switch between "Call Local LLM" and "Monitor Calls"
 
 ## Database Schema
 
@@ -69,26 +87,58 @@ CREATE TABLE llm_call_logs (
 
 ### Running the Dashboard
 
+#### Recommended: Use Start Script
+
 ```bash
 # From project root
 cd ~/langchain-demo
-source venv/bin/activate
-
-# Run with remote access enabled
-streamlit run src/ui/streamlit_dashboard.py \
-  --server.address 0.0.0.0 \
-  --server.port 8501 \
-  --server.headless true
+bash scripts/start_streamlit.sh
 ```
 
-**Current Server Setup:**
-- Running on: http://172.234.181.156:8501
-- Process: Running in background (check with `ps aux | grep streamlit`)
-- Logs: `/tmp/streamlit.log`
+This script automatically:
+- Checks if port 8501 is in use
+- Kills any existing Streamlit process
+- Starts the dashboard on port 8501
 
-The dashboard is accessible at:
-- **Remote:** http://172.234.181.156:8501 ✅
-- **Local (via SSH tunnel):** http://localhost:8501
+#### Manual Start (After Code Changes)
+
+**Consistent Process:**
+1. Check if app is running on port 8501
+2. Kill it if running
+3. Start the new version
+
+```bash
+# Step 1: Check and kill existing process
+lsof -ti:8501 | xargs kill -9 2>/dev/null || echo "Port 8501 is free"
+
+# Step 2: Start Streamlit
+cd ~/langchain-demo
+source venv/bin/activate
+streamlit run src/ui/streamlit_dashboard.py --server.port 8501
+```
+
+#### Server Deployment (Background)
+
+For background execution on a server:
+
+```bash
+# Kill existing and start in background
+lsof -ti:8501 | xargs kill -9 2>/dev/null
+cd ~/langchain-demo
+source venv/bin/activate
+nohup streamlit run src/ui/streamlit_dashboard.py \
+  --server.address 0.0.0.0 \
+  --server.port 8501 \
+  --server.headless true \
+  > /tmp/streamlit.log 2>&1 &
+```
+
+**Access the dashboard:**
+- **Local:** http://localhost:8501
+- **Remote:** http://172.234.181.156:8501 (if firewall configured)
+- **Via SSH tunnel:** http://localhost:8501 (after `ssh -L 8501:localhost:8501 user@server`)
+
+**Note:** Always use port 8501 consistently. The dashboard will automatically detect and kill any existing instance before starting.
 
 ### Logging LLM Calls
 
@@ -144,20 +194,48 @@ This will:
 
 ## Dashboard Features
 
-### Summary Statistics
+### Page Navigation
 
+The dashboard has a sidebar navigation with two pages:
+1. **🤖 Call Local LLM** - Interactive LLM calling interface
+2. **📊 Monitor Calls** - Historical call logs and statistics
+
+The version number is displayed at the bottom of the sidebar for validation that the latest code is running.
+
+### Call Local LLM Page
+
+**Features:**
+- Text area for entering prompts/questions
+- Generate Response button
+- Real-time response display
+- Model configuration (path, temperature, max tokens)
+- Metrics display:
+  - Prompt tokens
+  - Completion tokens
+  - Total tokens
+  - Generation time
+  - Tokens per second
+- Response history
+- Automatic logging to database (toggleable)
+
+**Model Loading:**
+- Models are cached after first load for faster subsequent calls
+- Supports local LLM models (.gguf files)
+- Model path configurable via sidebar
+
+### Monitor Calls Page
+
+**Summary Statistics:**
 - **Total Calls**: Number of LLM calls made
 - **Total Tokens**: Cumulative token usage
 - **Total Time**: Cumulative generation time
 - **Call Rate**: Calls per minute
 
-### Filters
-
+**Filters:**
 - **Model Type**: Filter by model type (local, openai, anthropic, gemini)
 - **Time Range**: Filter by time period (last hour, 24h, 7 days, 30 days, all time)
 
-### Call Details
-
+**Call Details:**
 - View individual call details:
   - Full prompt and response
   - Token breakdown
@@ -165,8 +243,7 @@ This will:
   - Error messages (if any)
   - Additional metadata
 
-### Auto-Refresh
-
+**Auto-Refresh:**
 Enable auto-refresh to see new calls in real-time (updates every 30 seconds).
 
 ## Integration with Agent
@@ -205,8 +282,13 @@ log_llm_call(metrics, prompt=prompt, response=response)
 ✅ **Dashboard is Live and Working**
 - **URL:** http://172.234.181.156:8501
 - **Status:** Accessible and functional
+- **Version:** v1.2.0 (check sidebar to verify)
+- **Pages:** 
+  - ✅ Call Local LLM - Interactive LLM interface
+  - ✅ Monitor Calls - Historical call logs
 - **Database:** Connected and logging calls
 - **Firewall:** Configured correctly (INBOUND rule for port 8501)
+- **Navigation:** Sidebar navigation working with radio buttons
 
 ## Troubleshooting
 

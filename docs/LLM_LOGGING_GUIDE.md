@@ -95,7 +95,7 @@ python -c "from src.database.schema import create_database; create_database()"
 ### 2. Install Streamlit (if not installed)
 
 ```bash
-pip install streamlit
+pip install streamlit pandas
 ```
 
 ### 3. Test Logging
@@ -111,11 +111,34 @@ This will:
 
 ### 4. Launch Dashboard
 
+#### Recommended: Use Start Script
+
 ```bash
-streamlit run src/ui/streamlit_dashboard.py
+cd ~/langchain-demo
+bash scripts/start_streamlit.sh
 ```
 
-Access at: http://localhost:8501
+This automatically handles port cleanup and starts on port 8501.
+
+#### Manual Start
+
+After making code changes, follow this consistent process:
+
+```bash
+# 1. Kill existing process on port 8501
+lsof -ti:8501 | xargs kill -9 2>/dev/null || echo "Port 8501 is free"
+
+# 2. Start dashboard
+cd ~/langchain-demo
+source venv/bin/activate
+streamlit run src/ui/streamlit_dashboard.py --server.port 8501
+```
+
+**Access:**
+- **Local:** http://localhost:8501
+- **Remote:** http://172.234.181.156:8501 (if firewall configured)
+
+**Important:** Always use port 8501 consistently. The start script or manual process will ensure any existing instance is killed before starting.
 
 ## Integration Example
 
@@ -167,20 +190,44 @@ if log_entry:
 
 ## Dashboard Features
 
-### Summary Statistics
+The dashboard has two pages accessible via sidebar navigation:
+
+### Page 1: Call Local LLM 🤖
+
+**Interactive LLM Interface:**
+- Text area for entering prompts/questions
+- Generate Response button
+- Real-time response display
+- Model configuration (path, temperature, max tokens)
+- Metrics displayed after each call:
+  - Prompt tokens
+  - Completion tokens
+  - Total tokens
+  - Generation time
+  - Tokens per second
+- Response history
+- Automatic database logging (toggleable)
+
+**Version Number:**
+- Check the sidebar bottom for the dashboard version (e.g., "Dashboard v1.2.0")
+- Use this to verify the latest code is running
+
+### Page 2: Monitor Calls 📊
+
+**Summary Statistics:**
 - Total calls made
 - Cumulative token usage
 - Total generation time
 - Average performance metrics
 - Success/failure rates
 
-### Call History
+**Call History:**
 - Recent calls with timestamps
 - Token breakdown per call
 - Generation speed (tokens/second)
 - Success status
 
-### Detailed View
+**Detailed View:**
 - Full prompt text
 - Full response text
 - Performance metrics
