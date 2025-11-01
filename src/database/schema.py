@@ -275,7 +275,7 @@ class LLMCallLog(Base):
     error_message = Column(Text, nullable=True)
     
     # Additional metadata
-    metadata = Column(JSON, nullable=True)  # Extra information (model config, etc.)
+    extra_metadata = Column(JSON, nullable=True)  # Extra information (model config, etc.) - renamed from 'metadata' as it's reserved in SQLAlchemy
     
     # Timestamp
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
