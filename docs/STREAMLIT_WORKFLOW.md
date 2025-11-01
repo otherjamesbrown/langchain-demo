@@ -13,7 +13,7 @@ The dashboard includes a version number (`DASHBOARD_VERSION`) in `src/ui/streaml
 2. This allows validation that the new code is running
 3. Version is displayed at the bottom of the sidebar
 
-**Current Version:** v1.2.0
+**Current Version:** v1.3.0
 
 ## Quick Start
 
@@ -166,4 +166,160 @@ When developing UI features:
 5. Repeat as needed
 
 The script ensures you're always running the latest code without port conflicts.
+
+---
+
+## Remote Server Deployment
+
+For deploying dashboard changes to the remote Linode server (172.234.181.156):
+
+### Server Details
+
+- **Host**: 172.234.181.156
+- **User**: `langchain` (primary) or `root` (admin)
+- **Directory**: `/home/langchain/langchain-demo`
+- **SSH Key**: `~/.ssh/id_ed25519_langchain`
+- **Port**: 8501
+- **Log File**: `/tmp/streamlit.log`
+
+### Quick Deployment Workflow
+
+**Option 1: Using the restart script** (Recommended)
+
+```bash
+bash scripts/restart_streamlit_remote.sh
+```
+
+This script:
+1. Detects uncommitted changes
+2. Prompts to commit and push
+3. SSHs to the server
+4. Pulls latest code
+5. Restarts Streamlit
+
+**Option 2: Manual deployment**
+
+If the script fails or you need manual control:
+
+```bash
+# 1. Commit and push changes locally
+git add src/ui/streamlit_dashboard.py
+git commit -m "Update dashboard: [describe changes]"
+git push
+
+# 2. Copy file directly to server (if not using git)
+scp -i ~/.ssh/id_ed25519_langchain \
+    src/ui/streamlit_dashboard.py \
+    root@172.234.181.156:/home/langchain/langchain-demo/src/ui/
+
+# 3. SSH and restart
+ssh -i ~/.ssh/id_ed25519_langchain root@172.234.181.156
+
+# 4. On the server:
+cd /home/langchain/langchain-demo
+chown langchain:langchain src/ui/streamlit_dashboard.py
+
+# 5. Kill existing process
+lsof -ti:8501 | xargs kill -9 2>/dev/null
+
+# 6. Restart as langchain user
+su - langchain -c "cd /home/langchain/langchain-demo && \
+    source venv/bin/activate && \
+    nohup streamlit run src/ui/streamlit_dashboard.py \
+        --server.address 0.0.0.0 \
+        --server.port 8501 \
+        --server.headless true \
+        > /tmp/streamlit.log 2>&1 &"
+
+# 7. Verify it's running
+sleep 3
+lsof -ti:8501 && echo "✅ Running" || echo "❌ Failed"
+```
+
+### Troubleshooting Remote Deployment
+
+**SSH Permission Denied**
+
+```bash
+# Use the correct SSH key
+ssh -i ~/.ssh/id_ed25519_langchain root@172.234.181.156
+
+# Or connect as langchain user (if key is set up)
+ssh -i ~/.ssh/id_ed25519_langchain langchain@172.234.181.156
+```
+
+**Directory Not Found**
+
+Check which directory exists:
+```bash
+ssh -i ~/.ssh/id_ed25519_langchain root@172.234.181.156 \
+    'find /home -name "langchain-demo" -type d 2>/dev/null && \
+     find /root -name "langchain-demo" -type d 2>/dev/null'
+```
+
+Common locations:
+- `/home/langchain/langchain-demo` (most likely)
+- `/root/langchain-demo` (older setup)
+
+**Git Not Initialized**
+
+If the remote directory is not a git repository:
+1. Use `scp` to copy files directly (see Option 2 above)
+2. Or initialize git on the server:
+   ```bash
+   cd /home/langchain/langchain-demo
+   git init
+   git remote add origin https://github.com/[your-repo].git
+   git pull origin main
+   ```
+
+**Streamlit Won't Start**
+
+Check the logs:
+```bash
+ssh -i ~/.ssh/id_ed25519_langchain root@172.234.181.156 \
+    'tail -50 /tmp/streamlit.log'
+```
+
+Common issues:
+- Missing dependencies: `pip install -r requirements.txt`
+- Wrong Python version: Check virtual environment
+- Port already in use: Make sure kill command worked
+
+**Check Running Status**
+
+```bash
+ssh -i ~/.ssh/id_ed25519_langchain root@172.234.181.156 \
+    'lsof -i:8501 && tail -20 /tmp/streamlit.log'
+```
+
+### Access the Dashboard
+
+After deployment, access at:
+- **External**: http://172.234.181.156:8501
+- **With domain** (if configured): http://your-domain.com:8501
+
+### Deployment Checklist
+
+Before deploying to production:
+
+- [ ] Update `DASHBOARD_VERSION` in `streamlit_dashboard.py`
+- [ ] Test locally first
+- [ ] Commit changes with descriptive message
+- [ ] Push to GitHub
+- [ ] Deploy to server (script or manual)
+- [ ] Verify service is running (`lsof -ti:8501`)
+- [ ] Check logs for errors (`tail /tmp/streamlit.log`)
+- [ ] Access dashboard in browser
+- [ ] Verify version number in sidebar
+- [ ] Test new features
+
+### Important Notes
+
+1. **Always use root for deployment**: The `root` user has proper SSH key access
+2. **Run as langchain user**: Streamlit should run under the `langchain` user for proper permissions
+3. **Use absolute paths**: Don't rely on relative paths in SSH commands
+4. **Check ownership**: Files should be owned by `langchain:langchain`
+5. **Background execution**: Use `nohup` and `&` for persistent service
+6. **Log monitoring**: Tail logs immediately after restart to catch errors
 
