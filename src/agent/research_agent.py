@@ -22,7 +22,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain.agents import create_agent
 from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
@@ -389,6 +389,7 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
 
     industry = extract_text("Industry") or "Unknown"
     company_size = extract_text("Company Size") or "Unknown"
+    company_size_reason = extract_text("Company Size Reason") or None
     headquarters = extract_text("Headquarters") or "Unknown"
     founded = extract_year("Founded")
     products = extract_list("Products")
@@ -398,12 +399,42 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
     revenue = extract_text("Revenue") or None
     funding_stage = extract_text("Funding Stage") or None
 
+    def extract_value_and_reason(
+        label: str,
+        *,
+        aliases: Tuple[str, ...] = (),
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return the classification value and its evidence reason string.
+
+        Some model outputs use slight naming variations (e.g., ``and`` vs ``&``).
+        We try the primary label first and then any aliases until we capture data.
+        """
+
+        candidate_labels: Tuple[str, ...] = (label, *aliases)
+        for candidate in candidate_labels:
+            value = extract_text(candidate) or None
+            reason_label = f"{candidate} Reason"
+            reason = extract_text(reason_label) or None
+            if value or reason:
+                return value, reason
+        return None, None
+
+    growth_stage, growth_stage_reason = extract_value_and_reason("Growth Stage")
+    industry_vertical, industry_vertical_reason = extract_value_and_reason("Industry Vertical")
+    sub_industry_vertical, sub_industry_vertical_reason = extract_value_and_reason("Sub-Industry Vertical")
+    financial_health, financial_health_reason = extract_value_and_reason("Financial Health")
+    business_and_technology_adoption, business_and_technology_adoption_reason = extract_value_and_reason(
+        "Business & Technology Adoption",
+        aliases=("Business and Technology Adoption",),
+    )
+
     try:
         return CompanyInfo.model_validate(
             {
                 "company_name": company_name,
                 "industry": industry,
                 "company_size": company_size,
+                "company_size_reason": company_size_reason,
                 "headquarters": headquarters,
                 "founded": founded,
                 "products": products,
@@ -412,6 +443,16 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
                 "website": website or None,
                 "revenue": revenue,
                 "funding_stage": funding_stage,
+                "growth_stage": growth_stage,
+                "growth_stage_reason": growth_stage_reason,
+                "industry_vertical": industry_vertical,
+                "industry_vertical_reason": industry_vertical_reason,
+                "sub_industry_vertical": sub_industry_vertical,
+                "sub_industry_vertical_reason": sub_industry_vertical_reason,
+                "financial_health": financial_health,
+                "financial_health_reason": financial_health_reason,
+                "business_and_technology_adoption": business_and_technology_adoption,
+                "business_and_technology_adoption_reason": business_and_technology_adoption_reason,
             }
         )
     except ValidationError:
