@@ -67,3 +67,6 @@ htmlcov/
 # Session information (server-specific)
 SESSION_INFO.md
 
+# Status tracking (keep in git for collaboration, but some sections may be server-specific)
+# Note: These files are tracked for project visibility
+

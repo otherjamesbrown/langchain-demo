@@ -166,12 +166,13 @@ Key settings to configure:
 
 ```bash
 # Model Configuration
-MODEL_TYPE=local  # or 'openai', 'anthropic'
+MODEL_TYPE=local  # or 'openai', 'anthropic', 'gemini'
 MODEL_PATH=./models/llama-2-7b-chat.Q4_K_M.gguf
 
 # API Keys (if using remote models or search)
 OPENAI_API_KEY=your_key_here
 ANTHROPIC_API_KEY=your_key_here
+GOOGLE_API_KEY=your_key_here  # For Google Gemini
 TAVILY_API_KEY=your_key_here
 
 # Database
@@ -200,7 +201,13 @@ nvidia-smi
 # Test llama-cpp-python
 python -c "from llama_cpp import Llama; print('Llama-cpp-python installed successfully')"
 
-# Run basic tests
+# Test LLM with simple script
+python scripts/test_llm_simple.py
+
+# Or run comprehensive LLM test suite
+python scripts/test_llm.py
+
+# Run basic tests (when tests are implemented)
 pytest tests/ -v
 ```
 
@@ -318,13 +325,45 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 export OMP_NUM_THREADS=8
 ```
 
+## Step 13: Launch Monitoring Dashboard (Optional)
+
+The Streamlit dashboard provides a web interface for monitoring LLM calls and token usage:
+
+```bash
+cd ~/langchain-demo
+source venv/bin/activate
+
+# Install Streamlit if not already installed
+pip install streamlit pandas
+
+# Start the dashboard
+streamlit run src/ui/streamlit_dashboard.py \
+  --server.address 0.0.0.0 \
+  --server.port 8501 \
+  --server.headless true
+```
+
+**Access the dashboard:**
+- URL: http://172.234.181.156:8501
+- **Note:** Ensure Linode Cloud Firewall has an **INBOUND** rule allowing TCP port 8501
+
+**Features:**
+- View LLM call history
+- Track token usage (prompt, completion, total)
+- Monitor performance metrics (generation time, tokens/second)
+- Filter by model type and date range
+- View detailed prompts and responses
+
+See [UI_MONITORING.md](UI_MONITORING.md) for detailed dashboard documentation.
+
 ## Next Steps
 
 1. Test the agent with sample data
 2. Configure monitoring and logging
-3. Setup regular backups
-4. Implement job scheduling if needed
-5. Review logs for errors
+3. Launch the Streamlit dashboard for LLM call monitoring
+4. Setup regular backups
+5. Implement job scheduling if needed
+6. Review logs for errors
 
 ## Additional Resources
 

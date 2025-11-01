@@ -9,13 +9,13 @@ This project implements a research agent that:
 - Performs web searches for company information
 - Summarizes findings using local or remote LLMs
 - Stores results in a SQLite database
-- Supports multiple model providers (local Llama 8B, OpenAI, Anthropic)
+- Supports multiple model providers (local Llama 8B, OpenAI, Anthropic, Google Gemini)
 - Includes comprehensive monitoring and logging
 
 ## Features
 
 - **Local LLM Support**: Run Llama 8B quantized models locally on GPU
-- **Remote Model Support**: Use OpenAI or Anthropic APIs as alternatives
+- **Remote Model Support**: Use OpenAI, Anthropic, or Google Gemini APIs as alternatives
 - **Web Search Integration**: Multiple search API providers (Tavily, Serper, etc.)
 - **Database Storage**: SQLite database for research results
 - **Monitoring**: LangSmith integration and comprehensive logging
@@ -68,10 +68,11 @@ python src/agent/research_agent.py
 
 Key environment variables (see `config/env.example`):
 
-- `MODEL_TYPE`: `local` or `remote` (openai/anthropic)
+- `MODEL_TYPE`: `local`, `openai`, `anthropic`, or `gemini`
 - `MODEL_PATH`: Path to local Llama model
 - `OPENAI_API_KEY`: OpenAI API key (optional)
 - `ANTHROPIC_API_KEY`: Anthropic API key (optional)
+- `GOOGLE_API_KEY`: Google Gemini API key (optional)
 - `TAVILY_API_KEY`: Tavily search API key
 - `LANGCHAIN_API_KEY`: LangSmith API key (optional)
 - `DATABASE_PATH`: SQLite database file path
@@ -140,6 +141,9 @@ pytest tests/test_agent.py -v
 
 - [PRD.md](PRD.md) - Product Requirements Document
 - [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Project structure
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) - Overall project status
+- [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) - Infrastructure setup status (Linode & GCP)
+- [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) - Application development progress
 - `config/env.example` - Configuration template
 
 ## Contributing
