@@ -1,7 +1,21 @@
 # Redeploy Streamlit App
 
-Reference docs: `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`, `docs/SERVER_SETUP.md`,
-`docs/STREAMLIT_WORKFLOW.md`.
+Reference docs: `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`, `docs/SSH_ACCESS_GUIDE.md`, `docs/GITHUB_AUTH.md`, `docs/STREAMLIT_WORKFLOW.md`.
+
+## 0. Prerequisites (run locally)
+
+- Confirm GitHub auth is configured (token stored via credential helper):
+  ```bash
+  git config --global credential.helper  # should output "store"
+  git config --global user.name
+  git config --global user.email
+  ```
+- Verify the Linode SSH key is present (`~/.ssh/id_ed25519_langchain`) and loaded:
+  ```bash
+  ls -l ~/.ssh/id_ed25519_langchain
+  ssh-add -l || ssh-add ~/.ssh/id_ed25519_langchain
+  ```
+- If SSH still fails, use the Linode Weblish/LISH console (see `docs/SSH_ACCESS_GUIDE.md`).
 
 ## 1. Commit and push local changes
 
@@ -15,59 +29,40 @@ git commit -m "<describe your change>"
 git push origin <branch>
 ```
 
+Replace `<branch>` with the branch you are deploying (e.g., `main`).
+
 ## 2. SSH to the remote server and pull latest code
 
 ```bash
-ssh linode-langchain-user@172.234.181.156
+# Either use the SSH config alias (recommended)
+ssh linode-langchain-user
 
-cd /home/linode-langchain-user/langchain-demo
+# Or specify the key and user explicitly
+ssh -i ~/.ssh/id_ed25519_langchain langchain@172.234.181.156
+
+# Once connected
+cd ~/langchain-demo
 git fetch origin
 git checkout <branch>
-git pull origin <branch>
+git pull --ff-only origin <branch>
+exit
 ```
 
-Replace `<branch>` with the branch you just pushed. Exit the SSH session once the pull completes.
+If SSH is unavailable, launch the Linode console and run the same git commands there.
 
-## 3. Restart Streamlit on the remote host (same port)
+## 3. Restart Streamlit on the remote host
 
 ```bash
-ssh "linode-langchain-user@172.234.181.156" <<EOF
-set -e
-
-cd "/home/linode-langchain-user/langchain-demo"
-
-STREAMLIT_PORT="8501"
-
-if lsof -ti:${STREAMLIT_PORT} >/dev/null 2>&1; then
-  echo "Stopping existing process on port ${STREAMLIT_PORT}"
-  lsof -ti:${STREAMLIT_PORT} | xargs kill -9 2>/dev/null || true
-else
-  echo "No existing process found on port ${STREAMLIT_PORT}"
-fi
-
-source venv/bin/activate
-
-nohup streamlit run src/ui/streamlit_dashboard.py \
-  --server.address 0.0.0.0 \
-  --server.port ${STREAMLIT_PORT} \
-  --server.headless true \
-  > /tmp/streamlit.log 2>&1 &
-
-sleep 3
-
-if lsof -ti:${STREAMLIT_PORT} >/dev/null 2>&1; then
-  echo "Streamlit is running on port ${STREAMLIT_PORT}"
-  echo "Dashboard: http://172.234.181.156:${STREAMLIT_PORT}"
-else
-  echo "Streamlit failed to start. Showing recent logs:"
-  tail -20 /tmp/streamlit.log
-fi
-EOF
+ssh linode-langchain-user "cd ~/langchain-demo && bash scripts/start_streamlit.sh"
 ```
+
+`scripts/start_streamlit.sh` handles stopping any existing process on port `8501`, reactivating the virtualenv, and starting the dashboard. This mirrors the manual steps documented in `docs/SSH_ACCESS_GUIDE.md` and `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`.
 
 ## 4. Monitor logs (optional)
 
 ```bash
-ssh "linode-langchain-user@172.234.181.156" "tail -f /tmp/streamlit.log"
+ssh linode-langchain-user "tail -f /tmp/streamlit.log"
 ```
+
+If Streamlit fails to start, rerun `ssh linode-langchain-user` and inspect `/tmp/streamlit.log` directly. Use the Linode console if key-based SSH is not yet configured.
 
