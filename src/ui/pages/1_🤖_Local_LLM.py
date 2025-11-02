@@ -23,7 +23,12 @@ import time
 from datetime import datetime
 
 from src.database.schema import get_session, create_database
-from src.models.local_registry import list_local_models
+from src.database.operations import (
+    ensure_default_configuration,
+    get_model_configurations,
+    get_last_used_model,
+    set_last_used_model,
+)
 from src.utils.metrics import LLMMetrics
 from src.utils.llm_logger import log_llm_call
 
@@ -52,49 +57,53 @@ except Exception as e:
     st.error(f"Failed to connect to database: {e}")
     st.stop()
 
+ensure_default_configuration(session=session)
+
 # Model configuration sidebar
 st.sidebar.header("⚙️ Model Configuration")
+local_models = [
+    model
+    for model in get_model_configurations(provider="local", session=session)
+    if model.is_active
+]
 
-available_models = list_local_models()
-model_display_to_config = {config.display_name: config for config in available_models}
-model_options = list(model_display_to_config.keys()) + ["Custom path"]
+if not local_models:
+    st.sidebar.error("No local models configured. Add models on the Home page first.")
+    st.stop()
 
-env_default_key = os.getenv("LOCAL_MODEL_NAME")
+last_used = get_last_used_model(session=session)
 default_index = 0
-if env_default_key:
-    for idx, config in enumerate(available_models):
-        if config.key.lower() == env_default_key.lower():
+if last_used and last_used.provider == "local":
+    for idx, model in enumerate(local_models):
+        if model.id == last_used.id:
             default_index = idx
             break
 
-selected_option = st.sidebar.selectbox(
+selected_name = st.sidebar.selectbox(
     "Local Model",
-    options=model_options,
-    index=default_index if default_index < len(model_options) - 1 else 0,
-    help="Switch between pre-configured quantised models without editing env vars"
+    options=[model.name for model in local_models],
+    index=default_index,
+    help="Switch between pre-configured quantised models stored in the database.",
 )
 
-if selected_option in model_display_to_config:
-    selected_config = model_display_to_config[selected_option]
-    model_key = selected_config.key
-    default_model_path = str(selected_config.resolve_path())
-    st.sidebar.caption(
-        f"📝 {selected_config.description}"
-    )
-    st.sidebar.caption(
-        f"💾 Recommended VRAM: {selected_config.recommended_vram_gb}GB | "
-        f"Context window: {selected_config.context_window}"
-    )
-else:
-    selected_config = None
-    model_key = "custom"
-    default_model_path = os.getenv("MODEL_PATH", "./models/llama-2-7b-chat.Q4_K_M.gguf")
+selected_model = next(model for model in local_models if model.name == selected_name)
+if not last_used or last_used.id != selected_model.id:
+    set_last_used_model(selected_model.id, session=session)
 
-model_path = st.sidebar.text_input(
-    "Model Path",
-    value=default_model_path,
-    help="Path to your local LLM model file (.gguf)"
-)
+model_key = selected_model.model_key or selected_model.name
+model_path = (selected_model.model_path or "").strip()
+
+metadata = selected_model.extra_metadata or {}
+if metadata.get("description"):
+    st.sidebar.caption(f"📝 {metadata['description']}")
+if metadata.get("recommended_vram_gb") or metadata.get("context_window"):
+    st.sidebar.caption(
+        "💾 Recommended VRAM: "
+        f"{metadata.get('recommended_vram_gb', 'N/A')}GB | "
+        f"Context window: {metadata.get('context_window', 'N/A')}"
+    )
+if model_path:
+    st.sidebar.code(model_path, language="bash")
 
 temperature = st.sidebar.slider(
     "Temperature",
@@ -161,7 +170,7 @@ def load_llm(model_key: str, model_path: str, temperature: float):
         llm = get_llm(
             model_type="local",
             model_path=model_path,
-            local_model_name=None if model_key == "custom" else model_key,
+            local_model_name=model_key,
             temperature=temperature
         )
 
@@ -170,10 +179,14 @@ def load_llm(model_key: str, model_path: str, temperature: float):
         return None, str(e)
 
 # Check if model file exists
+if not model_path:
+    st.error("❌ No model path configured for this model. Update the configuration on the Home page.")
+    st.stop()
+
 resolved_model_path = Path(model_path).expanduser()
 if not resolved_model_path.exists():
     st.error(f"❌ Model file not found: {resolved_model_path}")
-    st.info("💡 Update the model path in the sidebar or set the MODEL_PATH environment variable")
+    st.info("💡 Update the model configuration on the Home page to point to a valid file path.")
     st.stop()
 
 # Show loading indicator
@@ -192,10 +205,7 @@ if llm is None:
     st.stop()
 
 # Show model loaded successfully (only once)
-if selected_config is None:
-    selected_model_display = resolved_model_path.name or "Custom path"
-else:
-    selected_model_display = selected_config.display_name
+selected_model_display = selected_model.name
 
 if "model_loaded_shown" not in st.session_state:
     st.success(f"✅ Model loaded: {selected_model_display}")
@@ -266,6 +276,8 @@ if generate_button:
                             metadata={
                                 "local_model_key": model_key,
                                 "model_path": str(resolved_model_path),
+                                "provider": "local",
+                                "model_configuration_id": selected_model.id,
                             },
                             session=session
                         )

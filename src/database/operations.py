@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 from src.database.schema import (
     Company,
     SearchHistory,
+    ModelConfiguration,
+    APICredential,
+    AppSetting,
     get_session,
     create_database
 )
@@ -19,11 +22,192 @@ if TYPE_CHECKING:
     from src.tools.models import CompanyInfo
 
 
+DEFAULT_GEMINI_API_KEY = "AIzaSyDmiLKwy6z7MfGTR73OZ1SBtSQwGvMxZCQ"
+
+
 def init_database():
     """Initialize database by creating all tables."""
     create_database()
 
 
+def _resolve_session(session: Optional[Session]) -> tuple[Session, bool]:
+    """Return a session and flag indicating whether it should be closed."""
+
+    if session is None:
+        return get_session(), True
+    return session, False
+
+
+def ensure_default_configuration(session: Optional[Session] = None) -> None:
+    """Seed the database with default models and API credentials if missing."""
+
+    from src.models.local_registry import list_local_models
+
+    db_session, should_close = _resolve_session(session)
+    created = False
+
+    try:
+        # Sync local models from registry
+        for local_config in list_local_models():
+            existing = (
+                db_session.query(ModelConfiguration)
+                .filter(
+                    ModelConfiguration.model_key == local_config.key
+                )
+                .first()
+            )
+            if existing is None:
+                db_session.add(
+                    ModelConfiguration(
+                        name=local_config.display_name,
+                        provider="local",
+                        model_key=local_config.key,
+                        model_path=str(local_config.resolve_path()),
+                        extra_metadata={
+                            "description": local_config.description,
+                            "recommended_vram_gb": local_config.recommended_vram_gb,
+                            "context_window": local_config.context_window,
+                        },
+                    )
+                )
+                created = True
+
+        # Ensure at least one model is marked as the last used default
+        last_model = get_last_used_model(session=db_session)
+        if last_model is None:
+            first_model = (
+                db_session.query(ModelConfiguration)
+                .filter(ModelConfiguration.is_active.is_(True))
+                .order_by(ModelConfiguration.id)
+                .first()
+            )
+            if first_model is not None:
+                set_last_used_model(first_model.id, session=db_session)
+                last_model = first_model
+
+        # Store Gemini API key if missing
+        existing_gemini = get_api_key("gemini", session=db_session)
+        if not existing_gemini:
+            upsert_api_key("gemini", DEFAULT_GEMINI_API_KEY, session=db_session)
+            created = True
+
+        if created:
+            db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_model_configurations(
+    provider: Optional[str] = None,
+    session: Optional[Session] = None,
+) -> List[ModelConfiguration]:
+    """Return active model configurations, optionally filtered by provider."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        query = db_session.query(ModelConfiguration).filter(
+            ModelConfiguration.is_active.is_(True)
+        )
+        if provider:
+            query = query.filter(ModelConfiguration.provider == provider)
+        return query.order_by(ModelConfiguration.name).all()
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_model_configuration_by_id(
+    model_id: int,
+    session: Optional[Session] = None,
+) -> Optional[ModelConfiguration]:
+    """Fetch a model configuration by primary key."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        return db_session.query(ModelConfiguration).filter_by(id=model_id).first()
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def set_last_used_model(model_id: int, session: Optional[Session] = None) -> None:
+    """Persist the identifier of the last selected model."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        setting = db_session.query(AppSetting).filter_by(key="last_used_model_id").first()
+        if setting is None:
+            setting = AppSetting(key="last_used_model_id", value=str(model_id))
+            db_session.add(setting)
+        else:
+            setting.value = str(model_id)
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_last_used_model(session: Optional[Session] = None) -> Optional[ModelConfiguration]:
+    """Retrieve the last model selected by the user."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        setting = db_session.query(AppSetting).filter_by(key="last_used_model_id").first()
+        if setting is None or not setting.value:
+            return None
+        try:
+            model_id = int(setting.value)
+        except (TypeError, ValueError):
+            return None
+        return db_session.query(ModelConfiguration).filter_by(id=model_id).first()
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def upsert_api_key(provider: str, api_key: str, session: Optional[Session] = None) -> None:
+    """Create or update an API credential for a provider."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        record = db_session.query(APICredential).filter_by(provider=provider).first()
+        if record is None:
+            record = APICredential(provider=provider, api_key=api_key)
+            db_session.add(record)
+        else:
+            record.api_key = api_key
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_api_key(provider: str, session: Optional[Session] = None) -> Optional[str]:
+    """Fetch the stored API key for a provider if available."""
+
+    db_session, should_close = _resolve_session(session)
+
+    try:
+        record = db_session.query(APICredential).filter_by(provider=provider).first()
+        return record.api_key if record else None
+    finally:
+        if should_close:
+            db_session.close()
 def save_company_info(company_info: "CompanyInfo", session: Optional[Session] = None) -> Company:
     """
     Save company information to the database.

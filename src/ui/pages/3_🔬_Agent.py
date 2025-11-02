@@ -25,8 +25,13 @@ import time
 from datetime import datetime
 
 from src.database.schema import get_session, create_database
-from src.database.operations import save_company_info
-from src.models.local_registry import list_local_models
+from src.database.operations import (
+    save_company_info,
+    ensure_default_configuration,
+    get_model_configurations,
+    get_last_used_model,
+    set_last_used_model,
+)
 from src.utils.llm_logger import log_llm_call
 from src.utils.metrics import LLMMetrics
 
@@ -55,52 +60,67 @@ except Exception as e:
     st.error(f"Failed to connect to database: {e}")
     st.stop()
 
+ensure_default_configuration(session=session)
+
 # Sidebar configuration
 st.sidebar.header("⚙️ Agent Configuration")
 
-model_type = st.sidebar.selectbox(
-    "Model Type",
-    options=["local", "openai", "anthropic"],
-    index=0,
-    help="Select which LLM provider to use for research"
+configured_models = get_model_configurations(session=session)
+
+if not configured_models:
+    st.sidebar.error("No models configured. Use the Home page to add model entries before running the agent.")
+    st.stop()
+
+last_used = get_last_used_model(session=session)
+default_index = 0
+if last_used is not None:
+    for idx, model in enumerate(configured_models):
+        if model.id == last_used.id:
+            default_index = idx
+            break
+
+selected_model_name = st.sidebar.selectbox(
+    "Model",
+    options=[model.name for model in configured_models],
+    index=default_index,
+    help="Select which model configuration the agent should use.",
 )
 
-local_model_config = None
+selected_model = next(model for model in configured_models if model.name == selected_model_name)
+if last_used is None or last_used.id != selected_model.id:
+    set_last_used_model(selected_model.id, session=session)
+
+model_type = selected_model.provider
 local_model_path: Path | None = None
 local_model_key: str | None = None
+model_kwargs: dict[str, str] = {}
 
-if model_type == "local":
-    available_models = list_local_models()
-    model_display_to_config = {cfg.display_name: cfg for cfg in available_models}
-    env_default_key = os.getenv("LOCAL_MODEL_NAME")
-    default_index = 0
-    if env_default_key:
-        for idx, cfg in enumerate(available_models):
-            if cfg.key.lower() == env_default_key.lower():
-                default_index = idx
-                break
+if selected_model.provider == "local":
+    if selected_model.model_path:
+        local_model_path = Path(selected_model.model_path).expanduser()
+        if not local_model_path.exists():
+            st.sidebar.error(
+                f"Model file missing: {local_model_path}. Update the model configuration on the Home page."
+            )
+            st.stop()
+    else:
+        st.sidebar.error("Selected local model does not have a path configured. Update it on the Home page.")
+        st.stop()
+    local_model_key = selected_model.model_key or selected_model.name
+else:
+    if selected_model.api_identifier:
+        model_kwargs["model_name"] = selected_model.api_identifier
 
-    selected_label = st.sidebar.selectbox(
-        "Local Model Variant",
-        options=list(model_display_to_config.keys()),
-        index=default_index,
-        help="Choose between pre-downloaded llama.cpp checkpoints"
-    )
-
-    local_model_config = model_display_to_config[selected_label]
-    local_model_key = local_model_config.key
-    local_model_path = local_model_config.resolve_path()
-
-    if not local_model_path.exists():
-        st.sidebar.warning(
-            f"Model file missing: {local_model_path}. Download it via SERVER_SETUP.md"
-        )
-
-    st.sidebar.caption(
-        f"📝 {local_model_config.description}\n"
-        f"💾 VRAM: {local_model_config.recommended_vram_gb}GB | "
-        f"Context window: {local_model_config.context_window}"
-    )
+metadata = selected_model.extra_metadata or {}
+st.sidebar.caption(f"Provider: `{selected_model.provider}`")
+if selected_model.model_path:
+    st.sidebar.caption(f"Path: `{selected_model.model_path}`")
+if selected_model.api_identifier:
+    st.sidebar.caption(f"Model Identifier: `{selected_model.api_identifier}`")
+if metadata.get("description"):
+    st.sidebar.info(metadata["description"])
+elif selected_model.provider == "local" and not selected_model.model_path:
+    st.sidebar.info("Configure the model path from the Home page to use this entry.")
 
 max_iterations = st.sidebar.slider(
     "Max Iterations",
@@ -159,10 +179,8 @@ with col2:
         st.rerun()
 
 with col3:
-    if model_type == "local" and local_model_config is not None:
-        st.write(f"Model: {local_model_config.display_name}")
-    else:
-        st.write(f"Model: {model_type}")
+    st.write(f"Model: {selected_model.name}")
+    st.caption(f"Provider: {selected_model.provider}")
 
 # Initialize session state
 if "agent_results" not in st.session_state:
@@ -187,20 +205,26 @@ if execute_button:
             try:
                 from src.agent.research_agent import ResearchAgent
 
+                model_path_str = str(local_model_path) if local_model_path else None
                 agent = ResearchAgent(
                     model_type=model_type,
                     verbose=verbose_mode,
                     max_iterations=max_iterations,
                     local_model=local_model_key if model_type == "local" else None,
-                    model_path=str(local_model_path) if local_model_path else None,
+                    model_path=model_path_str,
+                    model_kwargs=model_kwargs,
                 )
-                if model_type == "local" and local_model_config is not None:
+                if model_type == "local":
                     st.success(
                         "✅ Agent initialized with local model: "
-                        f"{local_model_config.display_name}"
+                        f"{selected_model.name}"
                     )
                 else:
-                    st.success(f"✅ Agent initialized with {model_type} model")
+                    model_label = selected_model.api_identifier or selected_model.name
+                    st.success(
+                        "✅ Agent initialized with "
+                        f"{selected_model.provider.title()} model: {model_label}"
+                    )
             except Exception as e:
                 st.error(f"❌ Failed to initialize agent: {e}")
                 st.code(str(e))
@@ -271,19 +295,22 @@ if execute_button:
                             stage4.warning("4️⃣ ⚠️ No structured company info to store")
 
                         # Log the run to LLM call history so we can analyse model usage.
-                        model_display = (
-                            result.model_display_name
-                            or (local_model_config.display_name if local_model_config else model_type)
-                        )
+                        model_display = result.model_display_name or selected_model.name
                         metadata = {
                             "company_name": company,
                             "iterations": result.iterations,
                             "success": result.success,
                             "execution_time_seconds": execution_time,
                             "source": "streamlit_agent_page",
+                            "provider": selected_model.provider,
+                            "model_configuration_id": selected_model.id,
                         }
                         if result.model_key:
-                            metadata["local_model_key"] = result.model_key
+                            metadata["model_key"] = result.model_key
+                        if selected_model.model_path:
+                            metadata["model_path"] = selected_model.model_path
+                        if selected_model.api_identifier:
+                            metadata["api_identifier"] = selected_model.api_identifier
 
                         try:
                             metrics = LLMMetrics(

@@ -271,6 +271,55 @@ class LLMCallLog(Base):
         return f"<LLMCallLog(id={self.id}, model='{self.model_name}', tokens={self.total_tokens})>"
 
 
+class ModelConfiguration(Base):
+    """Persisted model configuration entries for local and remote providers."""
+
+    __tablename__ = "model_configurations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    provider = Column(String(50), nullable=False)  # local, openai, anthropic, gemini, etc.
+    model_key = Column(String(255), nullable=True, unique=True)
+    model_path = Column(String(512), nullable=True)
+    api_identifier = Column(String(255), nullable=True)  # Remote model identifier (e.g., gpt-4)
+    is_active = Column(Boolean, default=True, nullable=False)
+    extra_metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover - repr for debugging only
+        return f"<ModelConfiguration(id={self.id}, name='{self.name}', provider='{self.provider}')>"
+
+
+class APICredential(Base):
+    """Store API credentials for remote model providers."""
+
+    __tablename__ = "api_credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String(50), nullable=False, unique=True, index=True)
+    api_key = Column(String(512), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover - repr for debugging only
+        return f"<APICredential(provider='{self.provider}')>"
+
+
+class AppSetting(Base):
+    """Key-value storage for global application preferences."""
+
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover - repr for debugging only
+        return f"<AppSetting(key='{self.key}')>"
+
+
 def get_database_url() -> str:
     """
     Get database connection URL from environment or default.

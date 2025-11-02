@@ -48,6 +48,20 @@ except ImportError:
 ModelType = Literal["local", "openai", "anthropic", "gemini"]
 
 
+def _fetch_api_key(provider: str) -> str | None:
+    """Retrieve an API key from the database if available."""
+
+    try:
+        from src.database.operations import get_api_key
+    except ImportError:
+        return None
+
+    try:
+        return get_api_key(provider)
+    except Exception:
+        return None
+
+
 def get_llm(
     model_type: ModelType | None = None,
     model_path: str | None = None,
@@ -275,7 +289,7 @@ def _create_openai_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "OpenAI is not installed. Install with: pip install langchain-openai"
         )
     
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY") or _fetch_api_key("openai")
     if not api_key:
         raise ValueError(
             "OpenAI API key is required. Set OPENAI_API_KEY environment variable"
@@ -298,7 +312,7 @@ def _create_anthropic_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "Anthropic is not installed. Install with: pip install langchain-anthropic"
         )
     
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY") or _fetch_api_key("anthropic")
     if not api_key:
         raise ValueError(
             "Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable"
@@ -321,7 +335,7 @@ def _create_gemini_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "Google Generative AI is not installed. Install with: pip install langchain-google-genai"
         )
     
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY") or _fetch_api_key("gemini")
     if not api_key:
         raise ValueError(
             "Google API key is required. Set GOOGLE_API_KEY environment variable"

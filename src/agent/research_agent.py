@@ -59,6 +59,7 @@ class ResearchAgentResult:
     intermediate_steps: List[Dict[str, Any]] = field(default_factory=list)
     model_display_name: Optional[str] = None
     model_key: Optional[str] = None
+    model_kwargs: Dict[str, Any] = field(default_factory=dict)
 
 
 class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
@@ -154,6 +155,7 @@ class ResearchAgent:
         profiling_guide_path: Optional[str] = None,
         local_model: Optional[str] = None,
         model_path: Optional[str] = None,
+        model_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.model_type = model_type
         self.verbose = verbose
@@ -164,6 +166,7 @@ class ResearchAgent:
         self.model_path = model_path
         self._resolved_model_path: Optional[str] = None
         self._model_display_name: Optional[str] = None
+        self.model_kwargs = model_kwargs or {}
 
         self._instructions = self._load_instructions()
         self._profiling_guide = self._load_profiling_guide()
@@ -196,6 +199,7 @@ class ResearchAgent:
             "model_display_name": self._model_display_name,
             "local_model_key": self.local_model,
             "model_path": self._resolved_model_path,
+            "model_kwargs": self.model_kwargs,
         }
 
         try:
@@ -242,6 +246,8 @@ class ResearchAgent:
             intermediate_steps=steps,
             model_display_name=self._model_display_name,
             model_key=self.local_model,
+            model_kwargs=self.model_kwargs,
+            model_kwargs=self.model_kwargs,
         )
 
     # ------------------------------------------------------------------
@@ -280,13 +286,15 @@ class ResearchAgent:
             temperature=0.2,
             local_model_name=self.local_model,
             verbose=self.verbose,
+            **self.model_kwargs,
         )
 
     def _resolve_model_metadata(self) -> None:
         """Resolve display name and path for the selected model."""
 
         if self.model_type != "local":
-            self._model_display_name = self.model_type.title()
+            model_alias = self.model_kwargs.get("model_name") if isinstance(self.model_kwargs, dict) else None
+            self._model_display_name = model_alias or self.model_type.title()
             self._resolved_model_path = None
             return
 
