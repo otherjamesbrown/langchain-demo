@@ -44,7 +44,7 @@ logs/
 *.sqlite3
 
 # Models (too large for git)
-models/
+/models/
 *.gguf
 *.bin
 *.safetensors

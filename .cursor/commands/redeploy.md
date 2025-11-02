@@ -53,10 +53,10 @@ If SSH is unavailable, launch the Linode console and run the same git commands t
 ## 3. Restart Streamlit on the remote host
 
 ```bash
-ssh linode-langchain-user "cd ~/langchain-demo && bash scripts/start_streamlit.sh"
+ssh linode-langchain-user "cd ~/langchain-demo && nohup bash scripts/start_streamlit.sh > /tmp/streamlit.log 2>&1 &"
 ```
 
-`scripts/start_streamlit.sh` handles stopping any existing process on port `8501`, reactivating the virtualenv, and starting the dashboard. This mirrors the manual steps documented in `docs/SSH_ACCESS_GUIDE.md` and `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`.
+Running the script via `nohup ... &` keeps the restart in the background so your local shell does not hang while Streamlit initialises. The helper still stops any existing process on port `8501`, reactivates the virtualenv, and launches the dashboard—mirroring the manual steps in `docs/SSH_ACCESS_GUIDE.md` and `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`.
 
 ## 4. Monitor logs (optional)
 
