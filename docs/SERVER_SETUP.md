@@ -152,6 +152,21 @@ cd ..
 - **16GB VRAM**: Llama 2 13B Q4_K_M or Llama 2 70B Q2_K
 - **CPU**: Smaller models like Phi-2, Orca Mini
 
+### Additional Model: Meta Llama 3.1 8B Instruct (New)
+
+```bash
+cd ~/langchain-demo/models
+
+# Download Meta Llama 3.1 instruct model (Q4_K_M quantisation)
+wget -O meta-llama-3.1-8b-instruct.Q4_K_M.gguf \
+  https://huggingface.co/QuantFactory/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf
+
+# Verify both models exist
+ls -lh meta-llama-3.1-8b-instruct.Q4_K_M.gguf llama-2-7b-chat.Q4_K_M.gguf
+```
+
+This pairing lets you compare Llama 2 (baseline) against Meta's newer Llama 3.1 instruct tuning directly from the Streamlit UI.
+
 ## Step 10: Configure Environment
 
 ```bash
@@ -168,6 +183,7 @@ Key settings to configure:
 # Model Configuration
 MODEL_TYPE=local  # or 'openai', 'anthropic', 'gemini'
 MODEL_PATH=./models/llama-2-7b-chat.Q4_K_M.gguf
+LOCAL_MODEL_NAME=llama-2-7b-chat-q4_k_m  # Streamlit dropdown default
 
 # API Keys (if using remote models or search)
 OPENAI_API_KEY=your_key_here

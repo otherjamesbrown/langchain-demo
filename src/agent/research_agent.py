@@ -18,6 +18,7 @@ The Streamlit UI imports :class:`ResearchAgent` and calls
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -34,7 +35,12 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
 from pydantic import ValidationError
 
-from src.models.model_factory import get_chat_model
+from src.models.model_factory import get_chat_model  # type: ignore[import]
+from src.models.local_registry import (  # type: ignore[import]
+    DEFAULT_LOCAL_MODEL_KEY,
+    get_local_model_config,
+    guess_local_model_key,
+)
 from src.tools.models import CompanyInfo
 from src.tools.web_search import TOOLS
 
@@ -51,6 +57,8 @@ class ResearchAgentResult:
     model_input: Dict[str, Any] = field(default_factory=dict)
     company_info: Optional[CompanyInfo] = None
     intermediate_steps: List[Dict[str, Any]] = field(default_factory=list)
+    model_display_name: Optional[str] = None
+    model_key: Optional[str] = None
 
 
 class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
@@ -144,12 +152,18 @@ class ResearchAgent:
         max_iterations: int = 10,
         instructions_path: Optional[str] = None,
         profiling_guide_path: Optional[str] = None,
+        local_model: Optional[str] = None,
+        model_path: Optional[str] = None,
     ) -> None:
         self.model_type = model_type
         self.verbose = verbose
         self.max_iterations = max_iterations
         self.instructions_path = instructions_path or _default_instruction_path()
         self.profiling_guide_path = profiling_guide_path or _default_profiling_guide_path()
+        self.local_model = local_model
+        self.model_path = model_path
+        self._resolved_model_path: Optional[str] = None
+        self._model_display_name: Optional[str] = None
 
         self._instructions = self._load_instructions()
         self._profiling_guide = self._load_profiling_guide()
@@ -158,6 +172,7 @@ class ResearchAgent:
         self._system_prompt = self._build_system_prompt()
         self._user_prompt = self._build_user_prompt()
         self._step_tracker = StepTrackerMiddleware()
+        self._resolve_model_metadata()
         self._agent = self._build_agent()
 
     # ------------------------------------------------------------------
@@ -178,6 +193,9 @@ class ResearchAgent:
             "profiling_guide_path": self.profiling_guide_path,
             "instruction_summary": self._instruction_summary,
             "classification_reference": self._classification_reference,
+            "model_display_name": self._model_display_name,
+            "local_model_key": self.local_model,
+            "model_path": self._resolved_model_path,
         }
 
         try:
@@ -197,6 +215,8 @@ class ResearchAgent:
                 iterations=iterations,
                 model_input=model_input_payload,
                 intermediate_steps=steps,
+                model_display_name=self._model_display_name,
+                model_key=self.local_model,
             )
 
         execution_time = time.perf_counter() - start_time
@@ -220,6 +240,8 @@ class ResearchAgent:
             model_input=model_input_payload,
             company_info=company_info,
             intermediate_steps=steps,
+            model_display_name=self._model_display_name,
+            model_key=self.local_model,
         )
 
     # ------------------------------------------------------------------
@@ -252,7 +274,55 @@ class ResearchAgent:
         # ``get_chat_model`` handles provider selection and environment variables.
         # Keeping all configuration in one place makes it easier for learners to
         # swap between local and hosted providers.
-        return get_chat_model(model_type=self.model_type, temperature=0.2, verbose=self.verbose)
+        return get_chat_model(
+            model_type=self.model_type,
+            model_path=self._resolved_model_path,
+            temperature=0.2,
+            local_model_name=self.local_model,
+            verbose=self.verbose,
+        )
+
+    def _resolve_model_metadata(self) -> None:
+        """Resolve display name and path for the selected model."""
+
+        if self.model_type != "local":
+            self._model_display_name = self.model_type.title()
+            self._resolved_model_path = None
+            return
+
+        # Prefer explicit path, otherwise fall back to registry key selection.
+        candidate_path = self.model_path or os.getenv("MODEL_PATH")
+        if candidate_path:
+            resolved = Path(candidate_path).expanduser()
+            self._resolved_model_path = str(resolved)
+            inferred_key = self.local_model or guess_local_model_key(resolved)
+            if inferred_key:
+                try:
+                    config = get_local_model_config(inferred_key)
+                    self.local_model = config.key
+                    self._model_display_name = config.display_name
+                    return
+                except KeyError:
+                    self.local_model = inferred_key
+            self._model_display_name = resolved.name
+            return
+
+        candidate_key = (
+            (self.local_model or os.getenv("LOCAL_MODEL_NAME") or DEFAULT_LOCAL_MODEL_KEY)
+            .strip()
+            .lower()
+        )
+
+        try:
+            config = get_local_model_config(candidate_key)
+            resolved = config.resolve_path()
+            self.local_model = config.key
+            self._resolved_model_path = str(resolved)
+            self._model_display_name = config.display_name
+        except KeyError:
+            self.local_model = candidate_key
+            self._resolved_model_path = None
+            self._model_display_name = f"local ({candidate_key})"
 
     def _build_system_prompt(self) -> str:
         """Combine research rules with formatting requirements."""

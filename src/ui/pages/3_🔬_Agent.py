@@ -26,6 +26,9 @@ from datetime import datetime
 
 from src.database.schema import get_session, create_database
 from src.database.operations import save_company_info
+from src.models.local_registry import list_local_models
+from src.utils.llm_logger import log_llm_call
+from src.utils.metrics import LLMMetrics
 
 # Page config
 st.set_page_config(
@@ -61,6 +64,43 @@ model_type = st.sidebar.selectbox(
     index=0,
     help="Select which LLM provider to use for research"
 )
+
+local_model_config = None
+local_model_path: Path | None = None
+local_model_key: str | None = None
+
+if model_type == "local":
+    available_models = list_local_models()
+    model_display_to_config = {cfg.display_name: cfg for cfg in available_models}
+    env_default_key = os.getenv("LOCAL_MODEL_NAME")
+    default_index = 0
+    if env_default_key:
+        for idx, cfg in enumerate(available_models):
+            if cfg.key.lower() == env_default_key.lower():
+                default_index = idx
+                break
+
+    selected_label = st.sidebar.selectbox(
+        "Local Model Variant",
+        options=list(model_display_to_config.keys()),
+        index=default_index,
+        help="Choose between pre-downloaded llama.cpp checkpoints"
+    )
+
+    local_model_config = model_display_to_config[selected_label]
+    local_model_key = local_model_config.key
+    local_model_path = local_model_config.resolve_path()
+
+    if not local_model_path.exists():
+        st.sidebar.warning(
+            f"Model file missing: {local_model_path}. Download it via SERVER_SETUP.md"
+        )
+
+    st.sidebar.caption(
+        f"📝 {local_model_config.description}\n"
+        f"💾 VRAM: {local_model_config.recommended_vram_gb}GB | "
+        f"Context window: {local_model_config.context_window}"
+    )
 
 max_iterations = st.sidebar.slider(
     "Max Iterations",
@@ -119,7 +159,10 @@ with col2:
         st.rerun()
 
 with col3:
-    st.write(f"Model: {model_type}")
+    if model_type == "local" and local_model_config is not None:
+        st.write(f"Model: {local_model_config.display_name}")
+    else:
+        st.write(f"Model: {model_type}")
 
 # Initialize session state
 if "agent_results" not in st.session_state:
@@ -147,9 +190,17 @@ if execute_button:
                 agent = ResearchAgent(
                     model_type=model_type,
                     verbose=verbose_mode,
-                    max_iterations=max_iterations
+                    max_iterations=max_iterations,
+                    local_model=local_model_key if model_type == "local" else None,
+                    model_path=str(local_model_path) if local_model_path else None,
                 )
-                st.success(f"✅ Agent initialized with {model_type} model")
+                if model_type == "local" and local_model_config is not None:
+                    st.success(
+                        "✅ Agent initialized with local model: "
+                        f"{local_model_config.display_name}"
+                    )
+                else:
+                    st.success(f"✅ Agent initialized with {model_type} model")
             except Exception as e:
                 st.error(f"❌ Failed to initialize agent: {e}")
                 st.code(str(e))
@@ -218,6 +269,43 @@ if execute_button:
                                 st.error(f"Database error: {db_error}")
                         else:
                             stage4.warning("4️⃣ ⚠️ No structured company info to store")
+
+                        # Log the run to LLM call history so we can analyse model usage.
+                        model_display = (
+                            result.model_display_name
+                            or (local_model_config.display_name if local_model_config else model_type)
+                        )
+                        metadata = {
+                            "company_name": company,
+                            "iterations": result.iterations,
+                            "success": result.success,
+                            "execution_time_seconds": execution_time,
+                            "source": "streamlit_agent_page",
+                        }
+                        if result.model_key:
+                            metadata["local_model_key"] = result.model_key
+
+                        try:
+                            metrics = LLMMetrics(
+                                prompt_tokens=0,
+                                completion_tokens=0,
+                                total_tokens=0,
+                                generation_time=execution_time,
+                                model_name=model_display,
+                                model_type=model_type,
+                            )
+                            log_entry = log_llm_call(
+                                metrics=metrics,
+                                response=result.raw_output,
+                                model_name=model_display,
+                                call_type="agent_run",
+                                metadata=metadata,
+                                session=session,
+                            )
+                            if log_entry is not None:
+                                session.commit()
+                        except Exception as logging_error:  # noqa: BLE001
+                            st.warning(f"⚠️ Failed to log agent run: {logging_error}")
 
                         # Display summary
                         st.divider()

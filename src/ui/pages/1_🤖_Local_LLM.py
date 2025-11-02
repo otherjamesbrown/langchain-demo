@@ -23,6 +23,7 @@ import time
 from datetime import datetime
 
 from src.database.schema import get_session, create_database
+from src.models.local_registry import list_local_models
 from src.utils.metrics import LLMMetrics
 from src.utils.llm_logger import log_llm_call
 
@@ -54,9 +55,44 @@ except Exception as e:
 # Model configuration sidebar
 st.sidebar.header("⚙️ Model Configuration")
 
+available_models = list_local_models()
+model_display_to_config = {config.display_name: config for config in available_models}
+model_options = list(model_display_to_config.keys()) + ["Custom path"]
+
+env_default_key = os.getenv("LOCAL_MODEL_NAME")
+default_index = 0
+if env_default_key:
+    for idx, config in enumerate(available_models):
+        if config.key.lower() == env_default_key.lower():
+            default_index = idx
+            break
+
+selected_option = st.sidebar.selectbox(
+    "Local Model",
+    options=model_options,
+    index=default_index if default_index < len(model_options) - 1 else 0,
+    help="Switch between pre-configured quantised models without editing env vars"
+)
+
+if selected_option in model_display_to_config:
+    selected_config = model_display_to_config[selected_option]
+    model_key = selected_config.key
+    default_model_path = str(selected_config.resolve_path())
+    st.sidebar.caption(
+        f"📝 {selected_config.description}"
+    )
+    st.sidebar.caption(
+        f"💾 Recommended VRAM: {selected_config.recommended_vram_gb}GB | "
+        f"Context window: {selected_config.context_window}"
+    )
+else:
+    selected_config = None
+    model_key = "custom"
+    default_model_path = os.getenv("MODEL_PATH", "./models/llama-2-7b-chat.Q4_K_M.gguf")
+
 model_path = st.sidebar.text_input(
     "Model Path",
-    value=os.getenv("MODEL_PATH", "./models/llama-2-7b-chat.Q4_K_M.gguf"),
+    value=default_model_path,
     help="Path to your local LLM model file (.gguf)"
 )
 
@@ -117,7 +153,7 @@ if "llm_responses" not in st.session_state:
 
 # Load model (cached)
 @st.cache_resource
-def load_llm(model_path: str, temperature: float):
+def load_llm(model_key: str, model_path: str, temperature: float):
     """Load the local LLM model (cached to avoid reloading)."""
     try:
         from src.models.model_factory import get_llm
@@ -125,6 +161,7 @@ def load_llm(model_path: str, temperature: float):
         llm = get_llm(
             model_type="local",
             model_path=model_path,
+            local_model_name=None if model_key == "custom" else model_key,
             temperature=temperature
         )
 
@@ -133,14 +170,15 @@ def load_llm(model_path: str, temperature: float):
         return None, str(e)
 
 # Check if model file exists
-if not os.path.exists(model_path):
-    st.error(f"❌ Model file not found: {model_path}")
+resolved_model_path = Path(model_path).expanduser()
+if not resolved_model_path.exists():
+    st.error(f"❌ Model file not found: {resolved_model_path}")
     st.info("💡 Update the model path in the sidebar or set the MODEL_PATH environment variable")
     st.stop()
 
 # Show loading indicator
 with st.spinner("Loading model..."):
-    llm, error = load_llm(model_path, temperature)
+    llm, error = load_llm(model_key, str(resolved_model_path), temperature)
 
 if error:
     st.error(f"❌ Failed to load model: {error}")
@@ -154,8 +192,13 @@ if llm is None:
     st.stop()
 
 # Show model loaded successfully (only once)
+if selected_config is None:
+    selected_model_display = resolved_model_path.name or "Custom path"
+else:
+    selected_model_display = selected_config.display_name
+
 if "model_loaded_shown" not in st.session_state:
-    st.success(f"✅ Model loaded: {os.path.basename(model_path)}")
+    st.success(f"✅ Model loaded: {selected_model_display}")
     st.session_state.model_loaded_shown = True
 
 # Generate response when button is clicked
@@ -206,7 +249,7 @@ if generate_button:
                     start_time=start_time,
                     end_time=end_time,
                     generation_time=generation_time,
-                    model_name=os.path.basename(model_path),
+                    model_name=selected_model_display,
                     model_type="local"
                 )
 
@@ -218,8 +261,12 @@ if generate_button:
                             metrics=metrics,
                             prompt=prompt,
                             response=response_text,
-                            model_name=os.path.basename(model_path),
+                            model_name=selected_model_display,
                             call_type="ui_interactive",
+                            metadata={
+                                "local_model_key": model_key,
+                                "model_path": str(resolved_model_path),
+                            },
                             session=session
                         )
                         session.commit()

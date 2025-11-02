@@ -11,6 +11,13 @@ from typing import Literal
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from src.models.local_registry import (
+    DEFAULT_LOCAL_MODEL_KEY,
+    get_local_model_config,
+    guess_local_model_key,
+    list_local_models,
+)
+
 # Import LLM providers
 try:
     from langchain_community.llms import LlamaCpp
@@ -45,6 +52,7 @@ def get_llm(
     model_type: ModelType | None = None,
     model_path: str | None = None,
     temperature: float = 0.7,
+    local_model_name: str | None = None,
     **kwargs
 ) -> BaseLanguageModel:
     """
@@ -77,7 +85,12 @@ def get_llm(
     
     # Create appropriate LLM instance
     if model_type == "local":
-        return _create_local_llm(model_path, temp, **kwargs)
+        return _create_local_llm(
+            model_path=model_path,
+            temperature=temp,
+            local_model_name=local_model_name,
+            **kwargs,
+        )
     elif model_type == "openai":
         return _create_openai_llm(temp, **kwargs)
     elif model_type == "anthropic":
@@ -92,6 +105,7 @@ def get_chat_model(
     model_type: ModelType | None = None,
     model_path: str | None = None,
     temperature: float = 0.7,
+    local_model_name: str | None = None,
     **kwargs
 ) -> BaseChatModel:
     """Create a chat-compatible LLM instance for agent workflows.
@@ -124,7 +138,12 @@ def get_chat_model(
     temp = float(os.getenv("TEMPERATURE", temperature))
 
     if model_type == "local":
-        return _create_local_chat_model(model_path, temp, **kwargs)
+        return _create_local_chat_model(
+            model_path=model_path,
+            temperature=temp,
+            local_model_name=local_model_name,
+            **kwargs,
+        )
     if model_type == "openai":
         return _create_openai_llm(temp, **kwargs)
     if model_type == "anthropic":
@@ -135,9 +154,53 @@ def get_chat_model(
     raise ValueError(f"Unknown model type: {model_type}")
 
 
+def _select_local_model(
+    model_path: str | None,
+    local_model_name: str | None,
+) -> tuple[Path, str, int | None, str | None]:
+    """Resolve the local model to use and return metadata for downstream use."""
+
+    candidate_path = model_path or os.getenv("MODEL_PATH")
+    if candidate_path:
+        resolved = Path(candidate_path).expanduser()
+        if not resolved.is_absolute():
+            resolved = Path(__file__).resolve().parent.parent.parent / resolved
+        resolved = resolved.resolve()
+        registry_key = guess_local_model_key(resolved)
+        context_window: int | None = None
+        display_name = resolved.name
+        if registry_key:
+            try:
+                config = get_local_model_config(registry_key)
+                context_window = config.context_window
+                display_name = config.display_name
+            except KeyError:
+                pass
+        return resolved, display_name, context_window, registry_key
+
+    registry_key = (
+        local_model_name
+        or os.getenv("LOCAL_MODEL_NAME")
+        or DEFAULT_LOCAL_MODEL_KEY
+    ).strip()
+    normalized_key = registry_key.lower()
+
+    try:
+        config = get_local_model_config(normalized_key)
+    except KeyError as exc:
+        available = ", ".join(cfg.key for cfg in list_local_models())
+        raise ValueError(
+            f"Unknown local model '{registry_key}'. Available options: {available}"
+        ) from exc
+
+    resolved = config.resolve_path().expanduser().resolve()
+    return resolved, config.display_name, config.context_window, config.key
+
+
 def _create_local_llm(
     model_path: str | None,
     temperature: float,
+    local_model_name: str | None = None,
     **kwargs
 ) -> BaseLanguageModel:
     """Create a local LlamaCpp LLM instance."""
@@ -146,33 +209,22 @@ def _create_local_llm(
             "LlamaCpp is not installed. Install with: pip install llama-cpp-python"
         )
     
-    # Get model path from env or parameter
-    if model_path is None:
-        model_path = os.getenv("MODEL_PATH")
+    resolved_path, _, suggested_ctx, _ = _select_local_model(
+        model_path=model_path,
+        local_model_name=local_model_name,
+    )
 
-    if not model_path:
-        default_path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "models"
-            / "llama-2-7b-chat.Q4_K_M.gguf"
+    if not resolved_path.exists():
+        raise FileNotFoundError(
+            "Model file not found: "
+            f"{resolved_path}. Download the model or update the registry entry."
         )
-        if default_path.exists():
-            model_path = str(default_path)
-    
-    if not model_path:
-        raise ValueError(
-            "Model path is required for local LLM. "
-            "Set MODEL_PATH environment variable or pass model_path parameter"
-        )
-    
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-    
+
     # LlamaCpp parameters
     llama_params = {
-        "model_path": model_path,
+        "model_path": str(resolved_path),
         "temperature": temperature,
-        "n_ctx": kwargs.get("n_ctx", 4096),  # Context window
+        "n_ctx": kwargs.get("n_ctx", suggested_ctx or 4096),  # Context window
         "n_gpu_layers": kwargs.get("n_gpu_layers", -1),  # Use all GPU layers
         "verbose": kwargs.get("verbose", False),
         "n_batch": kwargs.get("n_batch", 512),  # Batch size for processing
@@ -184,6 +236,7 @@ def _create_local_llm(
 def _create_local_chat_model(
     model_path: str | None,
     temperature: float,
+    local_model_name: str | None = None,
     **kwargs
 ) -> BaseChatModel:
     """Create a local ChatLlamaCpp instance for agent interactions."""
@@ -192,31 +245,21 @@ def _create_local_chat_model(
             "ChatLlamaCpp is not installed. Install with: pip install llama-cpp-python"
         )
 
-    if model_path is None:
-        model_path = os.getenv("MODEL_PATH")
+    resolved_path, _, suggested_ctx, _ = _select_local_model(
+        model_path=model_path,
+        local_model_name=local_model_name,
+    )
 
-    if not model_path:
-        default_path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "models"
-            / "llama-2-7b-chat.Q4_K_M.gguf"
+    if not resolved_path.exists():
+        raise FileNotFoundError(
+            "Model file not found: "
+            f"{resolved_path}. Download the model or update the registry entry."
         )
-        if default_path.exists():
-            model_path = str(default_path)
-
-    if not model_path:
-        raise ValueError(
-            "Model path is required for local chat LLM. "
-            "Set MODEL_PATH environment variable or pass model_path parameter"
-        )
-
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
 
     llama_params = {
-        "model_path": model_path,
+        "model_path": str(resolved_path),
         "temperature": temperature,
-        "n_ctx": kwargs.get("n_ctx", 4096),
+        "n_ctx": kwargs.get("n_ctx", suggested_ctx or 4096),
         "n_gpu_layers": kwargs.get("n_gpu_layers", -1),
         "verbose": kwargs.get("verbose", False),
         "n_batch": kwargs.get("n_batch", 512),
