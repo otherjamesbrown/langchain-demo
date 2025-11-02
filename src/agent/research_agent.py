@@ -247,7 +247,6 @@ class ResearchAgent:
             model_display_name=self._model_display_name,
             model_key=self.local_model,
             model_kwargs=self.model_kwargs,
-            model_kwargs=self.model_kwargs,
         )
 
     # ------------------------------------------------------------------
