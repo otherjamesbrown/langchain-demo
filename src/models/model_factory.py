@@ -171,7 +171,7 @@ def get_chat_model(
 def _select_local_model(
     model_path: str | None,
     local_model_name: str | None,
-) -> tuple[Path, str, int | None, str | None]:
+) -> tuple[Path, str, int | None, str | None, str | None]:
     """Resolve the local model to use and return metadata for downstream use."""
 
     candidate_path = model_path or os.getenv("MODEL_PATH")
@@ -183,14 +183,16 @@ def _select_local_model(
         registry_key = guess_local_model_key(resolved)
         context_window: int | None = None
         display_name = resolved.name
+        chat_format: str | None = None
         if registry_key:
             try:
                 config = get_local_model_config(registry_key)
                 context_window = config.context_window
                 display_name = config.display_name
+                chat_format = config.chat_format
             except KeyError:
                 pass
-        return resolved, display_name, context_window, registry_key
+        return resolved, display_name, context_window, registry_key, chat_format
 
     registry_key = (
         local_model_name
@@ -208,7 +210,7 @@ def _select_local_model(
         ) from exc
 
     resolved = config.resolve_path().expanduser().resolve()
-    return resolved, config.display_name, config.context_window, config.key
+    return resolved, config.display_name, config.context_window, config.key, config.chat_format
 
 
 def _create_local_llm(
@@ -223,7 +225,7 @@ def _create_local_llm(
             "LlamaCpp is not installed. Install with: pip install llama-cpp-python"
         )
     
-    resolved_path, _, suggested_ctx, _ = _select_local_model(
+    resolved_path, _, suggested_ctx, _, _ = _select_local_model(
         model_path=model_path,
         local_model_name=local_model_name,
     )
@@ -259,7 +261,7 @@ def _create_local_chat_model(
             "ChatLlamaCpp is not installed. Install with: pip install llama-cpp-python"
         )
 
-    resolved_path, _, suggested_ctx, _ = _select_local_model(
+    resolved_path, _, suggested_ctx, _, chat_format = _select_local_model(
         model_path=model_path,
         local_model_name=local_model_name,
     )
@@ -278,6 +280,9 @@ def _create_local_chat_model(
         "verbose": kwargs.get("verbose", False),
         "n_batch": kwargs.get("n_batch", 512),
     }
+
+    if chat_format and "chat_format" not in kwargs:
+        llama_params["chat_format"] = chat_format
 
     return ChatLlamaCpp(**llama_params)
 

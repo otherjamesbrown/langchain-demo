@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, List
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -28,6 +28,7 @@ class LocalModelConfig:
     description: str
     recommended_vram_gb: int
     context_window: int = 4096
+    chat_format: str | None = None
 
     def resolve_path(self) -> Path:
         """Return the absolute path for the model file relative to ``models/``."""
@@ -53,6 +54,7 @@ def _build_registry() -> Dict[str, LocalModelConfig]:
             ),
             recommended_vram_gb=8,
             context_window=4096,
+            chat_format=None,
         ),
         "meta-llama-3.1-8b-instruct-q4_k_m": LocalModelConfig(
             key="meta-llama-3.1-8b-instruct-q4_k_m",
@@ -66,6 +68,7 @@ def _build_registry() -> Dict[str, LocalModelConfig]:
             ),
             recommended_vram_gb=12,
             context_window=8192,
+            chat_format="llama-3",
         ),
     }
 

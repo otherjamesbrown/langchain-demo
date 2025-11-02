@@ -56,6 +56,15 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                 )
                 .first()
             )
+
+            metadata_payload = {
+                "description": local_config.description,
+                "recommended_vram_gb": local_config.recommended_vram_gb,
+                "context_window": local_config.context_window,
+            }
+            if local_config.chat_format:
+                metadata_payload["chat_format"] = local_config.chat_format
+
             if existing is None:
                 db_session.add(
                     ModelConfiguration(
@@ -63,14 +72,25 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                         provider="local",
                         model_key=local_config.key,
                         model_path=str(local_config.resolve_path()),
-                        extra_metadata={
-                            "description": local_config.description,
-                            "recommended_vram_gb": local_config.recommended_vram_gb,
-                            "context_window": local_config.context_window,
-                        },
+                        extra_metadata=metadata_payload,
                     )
                 )
                 created = True
+            else:
+                updated = False
+                if not existing.model_path:
+                    existing.model_path = str(local_config.resolve_path())
+                    updated = True
+                if existing.extra_metadata is None:
+                    existing.extra_metadata = metadata_payload
+                    updated = True
+                else:
+                    for key, value in metadata_payload.items():
+                        if existing.extra_metadata.get(key) != value:
+                            existing.extra_metadata[key] = value
+                            updated = True
+                if updated:
+                    created = True
 
         # Ensure at least one model is marked as the last used default
         last_model = get_last_used_model(session=db_session)
