@@ -78,14 +78,10 @@ with open('.env', 'r') as f:
 for key, value in env_vars.items():
     print("{}='{}'".format(key, value))
 ENDPYTHON
-    # Read env vars from Python and export them
-    while IFS='=' read -r key value; do
-        # Remove surrounding single quotes from value
-        value="${value#\'}"
-        value="${value%\'}"
-        export "$key=$value"
-    done < <($VENV_PYTHON /tmp/load_env.py)
-    rm /tmp/load_env.py
+    # Export variables by sourcing output
+    $VENV_PYTHON /tmp/load_env.py > /tmp/streamlit_env.sh
+    source /tmp/streamlit_env.sh
+    rm /tmp/load_env.py /tmp/streamlit_env.sh
 fi
 
 # Start Streamlit
