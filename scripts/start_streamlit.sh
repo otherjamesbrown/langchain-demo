@@ -59,6 +59,12 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    echo "   Loading environment variables from .env..."
+    export $(cat .env | grep -v '^#' | xargs)
+fi
+
 # Start Streamlit
 streamlit run src/ui/streamlit_dashboard.py \
     --server.port $PORT
