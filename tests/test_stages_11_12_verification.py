@@ -43,7 +43,8 @@ class TestStage11:
         overall_accuracy = sum(all_scores) / len(all_scores)
         
         print(f"✅ Overall accuracy: {overall_accuracy:.1f}%")
-        assert overall_accuracy == 93.57, f"Expected 93.57, got {overall_accuracy:.2f}"
+        # Expected: (100+85+100+90+100+75+100)/7 = 650/7 = 92.857...
+        assert abs(overall_accuracy - 92.86) < 0.1, f"Expected ~92.86, got {overall_accuracy:.2f}"
         
         # Required fields (core company info)
         required_fields = ["company_name_field", "industry", "company_size", "headquarters", "founded"]
@@ -70,9 +71,9 @@ class TestStage11:
         weighted_accuracy = sum(weighted_scores) / len(weighted_scores) if weighted_scores else 0.0
         
         print(f"✅ Weighted accuracy: {weighted_accuracy:.1f}%")
-        # Critical fields: industry(85), company_size(100), headquarters(90) = 275
-        # Other fields: company_name(100), founded(100), description(75), website(100) = 375
-        # Total: 275*2 + 375 = 550 + 375 = 925, count: 3*2 + 4 = 10
+        # Critical fields (2x): industry(85), company_size(100), headquarters(90) = 85*2 + 100*2 + 90*2 = 550
+        # Other fields (1x): company_name(100), founded(100), description(75), website(100) = 375
+        # Total: 550 + 375 = 925, count: 3*2 + 4 = 10
         # Expected: 925/10 = 92.5
         assert abs(weighted_accuracy - 92.5) < 0.1, f"Expected ~92.5, got {weighted_accuracy:.1f}"
         
