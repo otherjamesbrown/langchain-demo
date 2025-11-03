@@ -97,6 +97,33 @@ def validate_optional_fields(company_info: CompanyInfo):
         "coverage": len(present_fields) / len(OPTIONAL_FIELDS) if OPTIONAL_FIELDS else 0,
     }
 
+def check_provider_packages_installed(provider: str) -> bool:
+    """Check if required packages are installed for a provider."""
+    package_map = {
+        "local": "llama_cpp",
+        "openai": "langchain_openai",
+        "anthropic": "langchain_anthropic",
+        "gemini": "langchain_google_genai",
+    }
+    
+    required_package = package_map.get(provider)
+    if not required_package:
+        return False
+    
+    # Check if package can be imported
+    try:
+        if provider == "openai":
+            __import__("langchain_openai")
+        elif provider == "anthropic":
+            __import__("langchain_anthropic")
+        elif provider == "gemini":
+            __import__("langchain_google_genai")
+        elif provider == "local":
+            __import__("llama_cpp")
+        return True
+    except ImportError:
+        return False
+
 def get_available_models_from_database():
     """Get available models from database."""
     from src.database.operations import get_api_key
@@ -105,6 +132,10 @@ def get_available_models_from_database():
     available_models = []
     
     for config in model_configs:
+        # First check if required packages are installed
+        if not check_provider_packages_installed(config.provider):
+            continue
+        
         is_usable = False
         
         if config.provider == "local":

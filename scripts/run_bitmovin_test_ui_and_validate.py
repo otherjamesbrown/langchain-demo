@@ -87,6 +87,8 @@ session.close()
 def validate_test_results():
     """Validate test results from database."""
     
+    from src.database.schema import create_database, get_session
+    
     print("="*70)
     print("Querying database for test results...")
     print("="*70)
