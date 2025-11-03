@@ -392,17 +392,20 @@ class ResearchAgent:
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
         ])
 
-        # Structured output strategies (LangChain v1 requires explicit strategy):
-        # - ToolStrategy: Uses "artificial tool calling" for structured output
-        #   Works with ANY model that supports tool calling (including ChatLlamaCpp)
-        # - ProviderStrategy: Uses provider-native structured output
-        #   Only works with providers that have native support (OpenAI, Anthropic, Gemini)
+        # Structured output strategies (LangChain v1):
+        # - ToolStrategy: Requires tool_choice parameter (NOT supported by ChatLlamaCpp) ❌
+        # - ProviderStrategy: Native structured output (only OpenAI, Anthropic, Gemini) ✅
         #
-        # According to LangChain docs, ChatLlamaCpp supports tool calling and structured output
-        # via ToolStrategy, which treats the schema as a special tool that must be called.
+        # ChatLlamaCpp limitation discovered:
+        # - Supports tool calling ✅
+        # - Does NOT support tool_choice parameter ❌
+        # - Therefore ToolStrategy fails with: "tool_choice='any' was specified..."
+        #
+        # Solution: Use structured output only for remote models, rely on prompts + middleware for local
         if self.model_type == "local":
-            # Local models: Use ToolStrategy (artificial tool calling)
-            response_format = ToolStrategy(CompanyInfo)
+            # Local models: No structured output (ChatLlamaCpp lacks tool_choice support)
+            # Rely on enhanced prompts + minimum iteration middleware instead
+            response_format = None
         else:
             # Remote models: Use ProviderStrategy (native structured output)
             response_format = ProviderStrategy(CompanyInfo)
