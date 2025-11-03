@@ -76,7 +76,7 @@ with open('.env', 'r') as f:
             key, value = line.split('=', 1)
             env_vars[key.strip()] = value.strip()
 for key, value in env_vars.items():
-    print("{}='{}'".format(key, value))
+    print("export {}='{}'".format(key, value))
 ENDPYTHON
     # Export variables by sourcing output
     $VENV_PYTHON /tmp/load_env.py > /tmp/streamlit_env.sh
