@@ -122,6 +122,12 @@ if metadata.get("description"):
 elif selected_model.provider == "local" and not selected_model.model_path:
     st.sidebar.info("Configure the model path from the Home page to use this entry.")
 
+max_output_tokens = int(metadata.get("max_output_tokens", 1024))
+if selected_model.provider == "local":
+    model_kwargs["max_tokens"] = max_output_tokens
+else:
+    model_kwargs.setdefault("max_tokens", max_output_tokens)
+
 max_iterations = st.sidebar.slider(
     "Max Iterations",
     min_value=1,

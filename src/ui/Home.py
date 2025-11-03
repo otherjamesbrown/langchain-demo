@@ -185,6 +185,8 @@ with st.sidebar:
         context_window = metadata.get("context_window")
         if context_window:
             details.append(f"Context Window: {context_window} tokens")
+        if metadata.get("max_output_tokens"):
+            details.append(f"Default Max Tokens: {metadata['max_output_tokens']}")
         description = metadata.get("description")
         if description:
             details.append(description)
@@ -254,6 +256,7 @@ for model in configured_models:
             "Model Path": model.model_path or "-",
             "API Identifier": model.api_identifier or "-",
             "Context Window": metadata.get("context_window", "-"),
+            "Default Max Tokens": metadata.get("max_output_tokens", "-"),
             "Recommended VRAM (GB)": metadata.get("recommended_vram_gb", "-"),
             "Description": metadata.get("description", ""),
         }

@@ -61,6 +61,7 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                 "description": local_config.description,
                 "recommended_vram_gb": local_config.recommended_vram_gb,
                 "context_window": local_config.context_window,
+                "max_output_tokens": max(local_config.context_window // 2, 512),
             }
             if local_config.chat_format:
                 metadata_payload["chat_format"] = local_config.chat_format

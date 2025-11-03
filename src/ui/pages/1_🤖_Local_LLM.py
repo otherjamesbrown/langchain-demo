@@ -105,6 +105,8 @@ if metadata.get("recommended_vram_gb") or metadata.get("context_window"):
 if model_path:
     st.sidebar.code(model_path, language="bash")
 
+default_max_tokens = int(metadata.get("max_output_tokens", 512))
+
 temperature = st.sidebar.slider(
     "Temperature",
     min_value=0.0,
@@ -118,7 +120,7 @@ max_tokens = st.sidebar.number_input(
     "Max Tokens",
     min_value=1,
     max_value=4096,
-    value=512,
+    value=default_max_tokens,
     step=64,
     help="Maximum number of tokens to generate"
 )
@@ -162,7 +164,7 @@ if "llm_responses" not in st.session_state:
 
 # Load model (cached)
 @st.cache_resource
-def load_llm(model_key: str, model_path: str, temperature: float):
+def load_llm(model_key: str, model_path: str, temperature: float, max_tokens: int):
     """Load the local LLM model (cached to avoid reloading)."""
     try:
         from src.models.model_factory import get_llm
@@ -171,7 +173,8 @@ def load_llm(model_key: str, model_path: str, temperature: float):
             model_type="local",
             model_path=model_path,
             local_model_name=model_key,
-            temperature=temperature
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         return llm, None
@@ -191,7 +194,7 @@ if not resolved_model_path.exists():
 
 # Show loading indicator
 with st.spinner("Loading model..."):
-    llm, error = load_llm(model_key, str(resolved_model_path), temperature)
+    llm, error = load_llm(model_key, str(resolved_model_path), temperature, int(max_tokens))
 
 if error:
     st.error(f"❌ Failed to load model: {error}")
