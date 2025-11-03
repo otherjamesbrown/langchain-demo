@@ -676,6 +676,101 @@ if st.button("🚀 Run Tests", type="primary"):
         
         success_count = sum(1 for r in results if r["success"])
         st.metric("Success Rate", f"{success_count}/{len(results)}")
+        
+        # Comparison Table: Required Fields + Additional Fields
+        st.markdown("---")
+        st.subheader("📊 Field Comparison Table")
+        st.markdown("Side-by-side comparison of all fields across tested models")
+        
+        # Get all test results with company info
+        comparison_data = {}
+        
+        # Define all fields
+        REQUIRED_FIELDS_LIST = ["company_name", "industry", "company_size", "headquarters", "founded"]
+        ADDITIONAL_FIELDS_LIST = [
+            "growth_stage", "industry_vertical", "sub_industry_vertical",
+            "financial_health", "business_and_technology_adoption",
+            "primary_workload_philosophy", "buyer_journey",
+            "budget_maturity", "cloud_spend_capacity", "procurement_process",
+        ]
+        
+        for result_entry in results:
+            test_exec = get_test_executions(
+                test_name="bitmovin_research",
+                test_company="BitMovin",
+                model_provider=result_entry["provider"],
+                limit=1,
+                session=session,
+            )
+            
+            if test_exec and test_exec[0].extracted_company_info:
+                ci = test_exec[0].extracted_company_info
+                model_name = result_entry["model"]
+                comparison_data[model_name] = ci
+        
+        if len(comparison_data) >= 1:
+            # Sort model names for consistent column order
+            sorted_model_names = sorted(comparison_data.keys())
+            
+            # Create comparison table for Required Fields
+            st.markdown("### Required Fields (5)")
+            required_table_data = []
+            for field in REQUIRED_FIELDS_LIST:
+                row = {"Field": field}
+                for model_name in sorted_model_names:
+                    value = comparison_data[model_name].get(field)
+                    if value is None:
+                        row[model_name] = "N/A"
+                    elif isinstance(value, (int, float, bool)):
+                        row[model_name] = str(value)
+                    elif isinstance(value, str):
+                        # Truncate long strings for display
+                        if len(value) > 60:
+                            row[model_name] = value[:57] + "..."
+                        else:
+                            row[model_name] = value
+                    elif isinstance(value, list):
+                        row[model_name] = ", ".join(str(v) for v in value[:3])
+                        if len(value) > 3:
+                            row[model_name] += f" (+{len(value)-3} more)"
+                    else:
+                        row[model_name] = str(value)
+                
+                required_table_data.append(row)
+            
+            required_df = pd.DataFrame(required_table_data)
+            st.dataframe(required_df, use_container_width=True, hide_index=True)
+            
+            # Create comparison table for Additional Fields
+            st.markdown("### Additional Fields (10)")
+            additional_table_data = []
+            for field in ADDITIONAL_FIELDS_LIST:
+                row = {"Field": field}
+                for model_name in sorted_model_names:
+                    value = comparison_data[model_name].get(field)
+                    if value is None:
+                        row[model_name] = "N/A"
+                    elif isinstance(value, (int, float, bool)):
+                        row[model_name] = str(value)
+                    elif isinstance(value, str):
+                        # Truncate long strings for display
+                        if len(value) > 60:
+                            row[model_name] = value[:57] + "..."
+                        else:
+                            row[model_name] = value
+                    elif isinstance(value, list):
+                        row[model_name] = ", ".join(str(v) for v in value[:3])
+                        if len(value) > 3:
+                            row[model_name] += f" (+{len(value)-3} more)"
+                    else:
+                        row[model_name] = str(value)
+                
+                additional_table_data.append(row)
+            
+            additional_df = pd.DataFrame(additional_table_data)
+            st.dataframe(additional_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Run tests to see comparison table")
 
 # Show recent test results
 st.markdown("---")
