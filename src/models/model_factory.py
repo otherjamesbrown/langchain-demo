@@ -360,6 +360,15 @@ def _create_local_chat_model(
         "n_batch": kwargs.get("n_batch", 512),
     }
 
+    # Pass max_tokens if provided (crucial for preventing output truncation)
+    # For local models, this typically comes from model_kwargs set by the UI
+    if "max_tokens" in kwargs:
+        llama_params["max_tokens"] = kwargs["max_tokens"]
+    elif suggested_ctx:
+        # Default to half the context window if not specified
+        # This matches the default used in database operations
+        llama_params["max_tokens"] = max(suggested_ctx // 2, 512)
+
     if chat_format and "chat_format" not in kwargs:
         llama_params["chat_format"] = chat_format
 
