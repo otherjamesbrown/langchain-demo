@@ -29,8 +29,6 @@ from typing import List, Dict, Any
 from src.database.schema import get_session, create_database
 from src.database.operations import (
     ensure_default_configuration,
-    get_model_configurations,
-    get_api_key,
     save_test_execution,
     get_test_executions,
 )
@@ -40,98 +38,20 @@ from src.testing.test_runner import TestRunner, ModelTestResult, TestExecutionRe
 from src.testing.baselines import get_baseline
 from src.testing.matchers import FieldMatcher
 
-# Model availability checking (shared from CLI script logic)
-def check_package_installed(package_name: str) -> bool:
-    """Check if a Python package is installed."""
-    try:
-        __import__(package_name)
-        return True
-    except ImportError:
-        return False
+# Import shared model availability utilities
+from src.utils.model_availability import get_available_models
 
-def check_provider_packages_installed(provider: str) -> bool:
-    """Check if required packages are installed for a provider."""
-    package_map = {
-        "local": "llama_cpp",
-        "openai": "langchain_openai",
-        "anthropic": "langchain_anthropic",
-        "gemini": "langchain_google_genai",
-    }
-    
-    required_package = package_map.get(provider)
-    if not required_package:
-        return False
-    
-    try:
-        if provider == "openai":
-            return check_package_installed("langchain_openai") or check_package_installed("openai")
-        elif provider == "anthropic":
-            return check_package_installed("langchain_anthropic") or check_package_installed("anthropic")
-        elif provider == "gemini":
-            return check_package_installed("langchain_google_genai") or check_package_installed("google.generativeai")
-        elif provider == "local":
-            return check_package_installed("llama_cpp") or check_package_installed("llama_cpp_python")
-    except ImportError:
-        return False
-    return False
-
+# Wrapper function for UI that accepts session parameter for compatibility
 def get_available_models_from_database(session) -> List[Dict[str, Any]]:
     """
     Get available model configurations from database.
     
-    Educational: This function validates that models are actually usable
-    (packages installed, model files exist, API keys available) before
-    allowing them to be selected for testing.
+    Educational: This function uses the shared utility to validate that models
+    are actually usable (packages installed, model files exist, API keys available)
+    before allowing them to be selected for testing.
     """
-    model_configs = get_model_configurations(session=session)
-    available_models = []
-    
-    for config in model_configs:
-        # Check if required packages are installed
-        if not check_provider_packages_installed(config.provider):
-            continue
-        
-        # Check if model is usable
-        is_usable = False
-        
-        if config.provider == "local":
-            if config.model_path and os.path.exists(os.path.expanduser(config.model_path)):
-                is_usable = True
-        else:
-            api_key = get_api_key(config.provider, session=session)
-            # Check if API key exists and is not a placeholder
-            placeholder_keys = [
-                "",
-                f"your_{config.provider}_api_key_here",
-                f"sk-your_{config.provider}_key_here",
-                "your_anthropic_key_here",
-                "sk-ant-your_anthropic_key_here",
-            ]
-            if (api_key and api_key.strip() and 
-                api_key not in placeholder_keys and
-                not api_key.startswith("sk-ant-your_") and
-                "placeholder" not in api_key.lower()):
-                is_usable = True
-        
-        if is_usable:
-            model_dict = {
-                "name": config.name,
-                "provider": config.provider,
-                "config_id": config.id,
-            }
-            
-            if config.provider == "local":
-                if config.model_path:
-                    model_dict["model_path"] = config.model_path
-                if config.model_key:
-                    model_dict["model_key"] = config.model_key
-            else:
-                if config.api_identifier:
-                    model_dict["api_identifier"] = config.api_identifier
-            
-            available_models.append(model_dict)
-    
-    return available_models
+    # Use shared utility (it will create its own session if needed)
+    return get_available_models(session=session)
 
 def format_confidence_score(confidence: float) -> str:
     """Format confidence score with color-coded indicator."""

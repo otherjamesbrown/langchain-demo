@@ -30,12 +30,7 @@ sys.path.insert(0, str(project_root))
 
 from src.agent.research_agent import ResearchAgent, ResearchAgentResult
 from src.tools.models import CompanyInfo
-from src.database.operations import (
-    get_model_configurations,
-    get_api_key,
-    ensure_default_configuration,
-)
-from src.database.schema import get_session, create_database
+from src.utils.model_availability import get_available_models
 
 
 # Expected minimum required fields for BitMovin
@@ -62,117 +57,28 @@ OPTIONAL_FIELDS = [
 ]
 
 
-def check_package_installed(package_name: str) -> bool:
-    """Check if a Python package is installed."""
-    try:
-        __import__(package_name)
-        return True
-    except ImportError:
-        return False
-
-
-def check_provider_packages_installed(provider: str) -> bool:
-    """Check if required packages are installed for a provider."""
-    package_map = {
-        "local": "llama_cpp",
-        "openai": "langchain_openai",
-        "anthropic": "langchain_anthropic",
-        "gemini": "langchain_google_genai",
-    }
-    
-    required_package = package_map.get(provider)
-    if not required_package:
-        return False
-    
-    # For langchain packages, check both the langchain package and underlying package
-    if provider == "openai":
-        return check_package_installed("langchain_openai") or check_package_installed("openai")
-    elif provider == "anthropic":
-        return check_package_installed("langchain_anthropic") or check_package_installed("anthropic")
-    elif provider == "gemini":
-        return check_package_installed("langchain_google_genai") or check_package_installed("google.generativeai")
-    elif provider == "local":
-        return check_package_installed("llama_cpp") or check_package_installed("llama_cpp_python")
-    
-    return False
-
-
+# Use shared utility function from utils module
 def get_available_models_from_database() -> List[Dict[str, Any]]:
     """Query database for available model configurations.
     
+    Wrapper around shared utility function for backward compatibility.
     Uses the new database-centric approach where all models and API keys
     are stored in the database as the single source of truth.
-    Only returns models that:
-    1. Have required packages installed
-    2. Have model files (for local) or API keys (for remote)
     """
-    try:
-        # Ensure database is initialized and has default configurations
-        create_database()
-        session = get_session()
-        try:
-            # Sync default configurations from code registry and env vars
-            # This ensures local models are registered and API keys are synced
-            ensure_default_configuration(session=session)
-            session.commit()
-            
-            # Get all active model configurations
-            model_configs = get_model_configurations(session=session)
-            
-            available_models = []
-            for config in model_configs:
-                # First check if required packages are installed
-                if not check_provider_packages_installed(config.provider):
-                    print(f"⚠️  Skipping {config.name}: Required packages not installed for {config.provider}")
-                    continue
-                
-                # Check if model is usable
-                is_usable = False
-                reason = ""
-                
-                if config.provider == "local":
-                    # Check if model file exists
-                    if config.model_path:
-                        if os.path.exists(config.model_path):
-                            is_usable = True
-                        else:
-                            # Try expanding path
-                            expanded_path = os.path.expanduser(config.model_path)
-                            if os.path.exists(expanded_path):
-                                is_usable = True
-                            else:
-                                reason = f"Model file not found: {config.model_path}"
-                    else:
-                        reason = "No model_path configured"
-                else:
-                    # For remote models, check if API key is available in database
-                    api_key = get_api_key(config.provider, session=session)
-                    if api_key and api_key.strip():
-                        is_usable = True
-                    else:
-                        reason = f"API key not found in database for {config.provider}"
-                
-                if is_usable:
-                    available_models.append({
-                        "provider": config.provider,
-                        "name": config.name,
-                        "model_key": config.model_key,
-                        "model_path": config.model_path,
-                        "api_identifier": config.api_identifier,
-                        "extra_metadata": config.extra_metadata or {},
-                        "config_id": config.id,  # Store ID for reference
-                    })
-                else:
-                    print(f"⚠️  Skipping {config.name}: {reason}")
-            
-            return available_models
-        finally:
-            session.close()
-    except Exception as e:
-        print(f"⚠️  Error querying database: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+    models = get_available_models()
+    # Convert to expected format (includes extra_metadata and maintains structure)
+    result = []
+    for model in models:
+        result.append({
+            "provider": model["provider"],
+            "name": model["name"],
+            "model_key": model.get("model_key"),
+            "model_path": model.get("model_path"),
+            "api_identifier": model.get("api_identifier"),
+            "extra_metadata": {},  # Not included in utility function output
+            "config_id": model["config_id"],
+        })
+    return result
 
 
 def validate_required_fields(company_info: CompanyInfo) -> Dict[str, Any]:
