@@ -161,6 +161,30 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                     )
                 )
                 created = True
+            
+            # Add Gemini 2.5 Pro model configuration
+            existing_gemini_pro_model = (
+                db_session.query(ModelConfiguration)
+                .filter(
+                    ModelConfiguration.provider == "gemini",
+                    ModelConfiguration.api_identifier == "gemini-2.5-pro"
+                )
+                .first()
+            )
+            if existing_gemini_pro_model is None:
+                db_session.add(
+                    ModelConfiguration(
+                        name="Google Gemini 2.5 Pro",
+                        provider="gemini",
+                        api_identifier="gemini-2.5-pro",
+                        extra_metadata={
+                            "description": "Google Gemini 2.5 Pro model via API - optimized for complex reasoning, code, math, and STEM applications",
+                            "max_output_tokens": 65536,
+                            "context_window": 1048576,
+                        }
+                    )
+                )
+                created = True
 
         # OpenAI
         openai_key = get_api_key("openai", session=db_session) or os.getenv("OPENAI_API_KEY")
