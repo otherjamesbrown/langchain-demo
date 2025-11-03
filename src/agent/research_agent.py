@@ -347,12 +347,7 @@ class ResearchAgent:
             "- Return a final answer as JSON matching the CompanyInfo schema.\n"
             "- If data is unavailable, use null or an empty list rather than guessing.\n"
             "- Include concise text in the description summarising the findings.\n"
-            "- Cite URLs inline when referencing specific claims.\n"
-            "- For every GTM classification (growth_stage, company_size, industry_vertical, "
-            "sub_industry_vertical, financial_health, business_and_technology_adoption, "
-            "primary_workload_philosophy, buyer_journey, budget_maturity, "
-            "cloud_spend_capacity, procurement_process, key_personas), provide a "
-            "corresponding *_reason field that explains the evidence used.\n\n"
+            "- Cite URLs inline when referencing specific claims.\n\n"
             "CompanyInfo schema keys (complete set, order not important):\n"
             f"{schema_fields}\n"
         )
@@ -368,24 +363,68 @@ class ResearchAgent:
         return PromptTemplate.from_template(template)
 
     def _load_instructions(self) -> str:
-        """Load markdown instructions that guide the research workflow."""
+        """Load research instructions from the consolidated prompt file.
+        
+        Extracts the section between "# RESEARCH INSTRUCTIONS" and "# CLASSIFICATION REFERENCE".
+        Falls back to entire file content if section markers not found.
+        """
 
         instruction_path = Path(self.instructions_path)
         if not instruction_path.exists():
             raise FileNotFoundError(
                 "Research instructions not found. Update instructions_path to point to a markdown file."
             )
-        return instruction_path.read_text(encoding="utf-8").strip()
+        
+        content = instruction_path.read_text(encoding="utf-8").strip()
+        
+        # Try to extract the RESEARCH INSTRUCTIONS section
+        if "# RESEARCH INSTRUCTIONS" in content:
+            parts = content.split("# RESEARCH INSTRUCTIONS", 1)
+            if len(parts) > 1:
+                section = parts[1].split("# CLASSIFICATION REFERENCE", 1)[0].strip()
+                if section:
+                    return section
+        
+        # Fallback to entire file if sections not found
+        return content
 
     def _load_profiling_guide(self) -> str:
-        """Load the GTM company profiling guide for classification definitions."""
+        """Load classification reference from the consolidated prompt file.
+        
+        Extracts the section between "# CLASSIFICATION REFERENCE" and next major section.
+        Falls back to entire file content if section markers not found.
+        """
 
         guide_path = Path(self.profiling_guide_path)
         if not guide_path.exists():
             raise FileNotFoundError(
                 "Company profiling guide not found. Update profiling_guide_path to a markdown file."
             )
-        return guide_path.read_text(encoding="utf-8").strip()
+        
+        content = guide_path.read_text(encoding="utf-8").strip()
+        
+        # Try to extract the CLASSIFICATION REFERENCE section
+        if "# CLASSIFICATION REFERENCE" in content:
+            parts = content.split("# CLASSIFICATION REFERENCE", 1)
+            if len(parts) > 1:
+                # Stop at next major section (starts with # followed by space)
+                section = parts[1]
+                # Find next major section header (## or # at start of line)
+                lines = section.split('\n')
+                section_lines = []
+                for line in lines:
+                    # Stop if we hit a new major section (## Details or # DETAILED)
+                    if line.strip().startswith('## ') and 'Details' in line:
+                        break
+                    if line.strip().startswith('# DETAILED'):
+                        break
+                    section_lines.append(line)
+                section_text = '\n'.join(section_lines).strip()
+                if section_text:
+                    return section_text
+        
+        # Fallback to entire file if sections not found
+        return content
 
     # ------------------------------------------------------------------
     # Parsing helpers
@@ -466,7 +505,6 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
 
     industry = extract_text("Industry") or "Unknown"
     company_size = extract_text("Company Size") or "Unknown"
-    company_size_reason = extract_text("Company Size Reason") or None
     headquarters = extract_text("Headquarters") or "Unknown"
     founded = extract_year("Founded")
     products = extract_list("Products")
@@ -476,31 +514,25 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
     revenue = extract_text("Revenue") or None
     funding_stage = extract_text("Funding Stage") or None
 
-    def extract_value_and_reason(
+    def extract_classification(
         label: str,
         *,
         aliases: Tuple[str, ...] = (),
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Return the classification value and its evidence reason string.
-
-        Some model outputs use slight naming variations (e.g., ``and`` vs ``&``).
-        We try the primary label first and then any aliases until we capture data.
-        """
+    ) -> Optional[str]:
+        """Extract a GTM classification value, trying primary label and aliases."""
 
         candidate_labels: Tuple[str, ...] = (label, *aliases)
         for candidate in candidate_labels:
             value = extract_text(candidate) or None
-            reason_label = f"{candidate} Reason"
-            reason = extract_text(reason_label) or None
-            if value or reason:
-                return value, reason
-        return None, None
+            if value:
+                return value
+        return None
 
-    growth_stage, growth_stage_reason = extract_value_and_reason("Growth Stage")
-    industry_vertical, industry_vertical_reason = extract_value_and_reason("Industry Vertical")
-    sub_industry_vertical, sub_industry_vertical_reason = extract_value_and_reason("Sub-Industry Vertical")
-    financial_health, financial_health_reason = extract_value_and_reason("Financial Health")
-    business_and_technology_adoption, business_and_technology_adoption_reason = extract_value_and_reason(
+    growth_stage = extract_classification("Growth Stage")
+    industry_vertical = extract_classification("Industry Vertical")
+    sub_industry_vertical = extract_classification("Sub-Industry Vertical")
+    financial_health = extract_classification("Financial Health")
+    business_and_technology_adoption = extract_classification(
         "Business & Technology Adoption",
         aliases=("Business and Technology Adoption",),
     )
@@ -511,7 +543,6 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
                 "company_name": company_name,
                 "industry": industry,
                 "company_size": company_size,
-                "company_size_reason": company_size_reason,
                 "headquarters": headquarters,
                 "founded": founded,
                 "products": products,
@@ -521,15 +552,10 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
                 "revenue": revenue,
                 "funding_stage": funding_stage,
                 "growth_stage": growth_stage,
-                "growth_stage_reason": growth_stage_reason,
                 "industry_vertical": industry_vertical,
-                "industry_vertical_reason": industry_vertical_reason,
                 "sub_industry_vertical": sub_industry_vertical,
-                "sub_industry_vertical_reason": sub_industry_vertical_reason,
                 "financial_health": financial_health,
-                "financial_health_reason": financial_health_reason,
                 "business_and_technology_adoption": business_and_technology_adoption,
-                "business_and_technology_adoption_reason": business_and_technology_adoption_reason,
             }
         )
     except ValidationError:
@@ -541,17 +567,21 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
 # ----------------------------------------------------------------------
 
 def _default_instruction_path() -> str:
-    """Return the default path to the GTM-aligned research instructions."""
+    """Return the default path to the consolidated research agent prompt file."""
 
     project_root = Path(__file__).resolve().parent.parent.parent
-    return str(project_root / "prompts" / "gtm.md")
+    return str(project_root / "prompts" / "research-agent-prompt.md")
 
 
 def _default_profiling_guide_path() -> str:
-    """Return the default path to the company profiling guide markdown file."""
+    """Return the default path to the consolidated research agent prompt file.
+    
+    Note: Now uses the same consolidated file as instructions_path.
+    The code extracts different sections from the single file.
+    """
 
     project_root = Path(__file__).resolve().parent.parent.parent
-    return str(project_root / "prompts" / "company-profiling-guide.md")
+    return str(project_root / "prompts" / "research-agent-prompt.md")
 
 
 def _summarise_markdown(content: str, max_lines: int = 28) -> str:
@@ -583,8 +613,76 @@ def _summarise_markdown(content: str, max_lines: int = 28) -> str:
 
 
 def _build_classification_reference() -> str:
-    """Return concise GTM classification options derived from the profiling guide."""
+    """Return concise GTM classification options extracted from the profiling guide.
+    
+    Tries to parse from the consolidated prompt file's CLASSIFICATION REFERENCE section.
+    Falls back to hardcoded defaults if parsing fails.
+    """
 
+    # Try to load and parse from the consolidated file
+    try:
+        project_root = Path(__file__).resolve().parent.parent.parent
+        prompt_file = project_root / "prompts" / "research-agent-prompt.md"
+        
+        if prompt_file.exists():
+            content = prompt_file.read_text(encoding="utf-8")
+            
+            # Extract CLASSIFICATION REFERENCE section
+            if "# CLASSIFICATION REFERENCE" in content:
+                parts = content.split("# CLASSIFICATION REFERENCE", 1)
+                if len(parts) > 1:
+                    section = parts[1].split("# DETAILED", 1)[0].strip()
+                    
+                    # Parse ## headers and their content
+                    lines = section.split('\n')
+                    parsed_sections = {}
+                    current_header = None
+                    current_content = []
+                    
+                    for line in lines:
+                        line_stripped = line.strip()
+                        # Skip HTML comments and empty lines
+                        if line_stripped.startswith('<!--') or not line_stripped or line_stripped == '':
+                            continue
+                        
+                        # Check for ## header
+                        if line_stripped.startswith('## '):
+                            # Save previous section if any
+                            if current_header and current_content:
+                                # Join content lines, removing extra whitespace
+                                content_str = ' '.join(current_content).strip()
+                                if content_str:
+                                    parsed_sections[current_header] = content_str
+                            
+                            # Start new section
+                            current_header = line_stripped[3:].strip()
+                            current_content = []
+                        elif current_header:
+                            # Add content to current section (skip markdown list markers)
+                            if line_stripped:
+                                # Remove leading dashes/bullets and clean up
+                                cleaned = line_stripped.lstrip('-* ').strip()
+                                if cleaned and not cleaned.startswith('<!--'):
+                                    current_content.append(cleaned)
+                    
+                    # Save last section
+                    if current_header and current_content:
+                        content_str = ' '.join(current_content).strip()
+                        if content_str:
+                            parsed_sections[current_header] = content_str
+                    
+                    # If we parsed sections, use them
+                    if parsed_sections:
+                        reference_lines = [
+                            f"- {name}: {options}"
+                            for name, options in parsed_sections.items()
+                        ]
+                        return "\n".join(reference_lines)
+    except Exception:
+        # Fall through to hardcoded defaults
+        pass
+
+    # Fallback to hardcoded defaults (backward compatibility)
     sections: dict[str, str] = {
         "Growth Stage": "Pre-Seed/Idea | Startup | Scale-Up | Mature/Enterprise",
         "Company Size": "Micro/Small (<50) | SMB (50-500) | Mid-Market (500-1000) | Enterprise (>1000)",
@@ -618,9 +716,6 @@ def _build_classification_reference() -> str:
         f"- {name}: {options}"
         for name, options in sections.items()
     ]
-    reference_lines.append(
-        "- Always accompany each classification with a *_reason field citing evidence (news, filings, job posts, etc.)."
-    )
 
     return "\n".join(reference_lines)
 
