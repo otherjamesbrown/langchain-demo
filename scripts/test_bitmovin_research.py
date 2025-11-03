@@ -62,11 +62,49 @@ OPTIONAL_FIELDS = [
 ]
 
 
+def check_package_installed(package_name: str) -> bool:
+    """Check if a Python package is installed."""
+    try:
+        __import__(package_name)
+        return True
+    except ImportError:
+        return False
+
+
+def check_provider_packages_installed(provider: str) -> bool:
+    """Check if required packages are installed for a provider."""
+    package_map = {
+        "local": "llama_cpp",
+        "openai": "langchain_openai",
+        "anthropic": "langchain_anthropic",
+        "gemini": "langchain_google_genai",
+    }
+    
+    required_package = package_map.get(provider)
+    if not required_package:
+        return False
+    
+    # For langchain packages, check both the langchain package and underlying package
+    if provider == "openai":
+        return check_package_installed("langchain_openai") or check_package_installed("openai")
+    elif provider == "anthropic":
+        return check_package_installed("langchain_anthropic") or check_package_installed("anthropic")
+    elif provider == "gemini":
+        return check_package_installed("langchain_google_genai") or check_package_installed("google.generativeai")
+    elif provider == "local":
+        return check_package_installed("llama_cpp") or check_package_installed("llama_cpp_python")
+    
+    return False
+
+
 def get_available_models_from_database() -> List[Dict[str, Any]]:
     """Query database for available model configurations.
     
     Uses the new database-centric approach where all models and API keys
     are stored in the database as the single source of truth.
+    Only returns models that:
+    1. Have required packages installed
+    2. Have model files (for local) or API keys (for remote)
     """
     try:
         # Ensure database is initialized and has default configurations
@@ -83,23 +121,36 @@ def get_available_models_from_database() -> List[Dict[str, Any]]:
             
             available_models = []
             for config in model_configs:
+                # First check if required packages are installed
+                if not check_provider_packages_installed(config.provider):
+                    print(f"⚠️  Skipping {config.name}: Required packages not installed for {config.provider}")
+                    continue
+                
                 # Check if model is usable
                 is_usable = False
+                reason = ""
                 
                 if config.provider == "local":
                     # Check if model file exists
-                    if config.model_path and os.path.exists(config.model_path):
-                        is_usable = True
-                    elif config.model_path:
-                        # Try expanding path
-                        expanded_path = os.path.expanduser(config.model_path)
-                        if os.path.exists(expanded_path):
+                    if config.model_path:
+                        if os.path.exists(config.model_path):
                             is_usable = True
+                        else:
+                            # Try expanding path
+                            expanded_path = os.path.expanduser(config.model_path)
+                            if os.path.exists(expanded_path):
+                                is_usable = True
+                            else:
+                                reason = f"Model file not found: {config.model_path}"
+                    else:
+                        reason = "No model_path configured"
                 else:
                     # For remote models, check if API key is available in database
                     api_key = get_api_key(config.provider, session=session)
                     if api_key and api_key.strip():
                         is_usable = True
+                    else:
+                        reason = f"API key not found in database for {config.provider}"
                 
                 if is_usable:
                     available_models.append({
@@ -111,6 +162,8 @@ def get_available_models_from_database() -> List[Dict[str, Any]]:
                         "extra_metadata": config.extra_metadata or {},
                         "config_id": config.id,  # Store ID for reference
                     })
+                else:
+                    print(f"⚠️  Skipping {config.name}: {reason}")
             
             return available_models
         finally:
@@ -249,6 +302,9 @@ def test_model(model_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     print(f"Initializing {model_name} agent...")
     try:
         agent = ResearchAgent(**agent_kwargs)
+    except ImportError as e:
+        print(f"⚠️  Skipping {model_name}: Required package not installed: {e}")
+        return None
     except Exception as e:
         print(f"❌ Failed to initialize {model_name} agent: {e}")
         import traceback
