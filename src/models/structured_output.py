@@ -67,13 +67,8 @@ class StructuredOutputSelector:
         "claude-3-5-sonnet-20241022",
         "claude-3-5-sonnet",
         
-        # Google Gemini models
-        "gemini-pro",
-        "gemini-pro-latest",
-        "gemini-flash",
-        "gemini-flash-latest",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
+        # Note: Gemini models are NOT listed here because they use ToolStrategy
+        # instead of ProviderStrategy. See select_strategy() method for details.
     }
     
     # Models that don't support ProviderStrategy but support ToolStrategy
@@ -151,12 +146,18 @@ class StructuredOutputSelector:
         if resolved_model_name and resolved_model_name.lower() in cls.TOOL_STRATEGY_MODELS:
             return ToolStrategy(schema)
         
-        # For remote providers, default to ProviderStrategy and let LangChain handle it
-        # LangChain's create_agent will auto-select the best strategy if the model
-        # supports it, or fall back to ToolStrategy if needed
-        if model_type in ["openai", "anthropic", "gemini"]:
-            # Try ProviderStrategy first - LangChain will handle compatibility
-            # If the model doesn't support it, LangChain may auto-fallback to ToolStrategy
+        # For remote providers, select strategy based on provider capabilities
+        # OpenAI and Anthropic: Use ProviderStrategy (native structured output works reliably)
+        # Gemini: Use ToolStrategy (ProviderStrategy returns None for structured_response)
+        #   See docs/troubleshooting/GEMINI_STRUCTURED_OUTPUT_PARSING.md for details
+        if model_type == "gemini":
+            # Gemini's ProviderStrategy implementation doesn't reliably return
+            # structured_response in agent_output, causing all fields to be None.
+            # ToolStrategy uses tool calling which Gemini supports well and is more reliable.
+            return ToolStrategy(schema)
+        elif model_type in ["openai", "anthropic"]:
+            # ProviderStrategy works reliably for OpenAI and Anthropic models
+            # LangChain will handle compatibility and auto-select if needed
             return ProviderStrategy(schema)
         
         # Unknown provider or model - no structured output
@@ -266,7 +267,17 @@ class StructuredOutputSelector:
                 "supported": True,
             }
         
-        if model_type in ["openai", "anthropic", "gemini"]:
+        if model_type == "gemini":
+            return {
+                "strategy": "tool",
+                "reason": (
+                    "Gemini uses ToolStrategy because ProviderStrategy doesn't reliably "
+                    "return structured_response in agent_output. See "
+                    "docs/troubleshooting/GEMINI_STRUCTURED_OUTPUT_PARSING.md for details."
+                ),
+                "supported": True,
+            }
+        elif model_type in ["openai", "anthropic"]:
             return {
                 "strategy": "provider",
                 "reason": (
