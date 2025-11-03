@@ -192,7 +192,7 @@ def _validate_optional_fields(company_info: CompanyInfo) -> Dict[str, Any]:
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("model_config", MODEL_CONFIGS)
-def test_bitmovin_research_across_models(model_config: Dict[str, Any], mock_env_vars):
+def test_bitmovin_research_across_models(model_config: Dict[str, Any], mock_env_vars, monkeypatch):
     """Test research agent execution against each model type for BitMovin.
     
     This test:
@@ -200,7 +200,19 @@ def test_bitmovin_research_across_models(model_config: Dict[str, Any], mock_env_
     2. Executes research for BitMovin
     3. Validates required fields are present and correct
     4. Optionally validates additional fields if present
+    
+    Note: For integration tests, we use the real database (not the test database)
+    so that API keys stored in the database are available. The mock_env_vars
+    DATABASE_PATH is overridden to use the real database path.
     """
+    # For integration tests with remote APIs, use real database for API keys
+    # Override the mock DATABASE_PATH to use the real database
+    import os
+    # Remove the in-memory database path set by mock_env_vars fixture
+    monkeypatch.delenv("DATABASE_PATH", raising=False)
+    # Use real database path for integration tests (has API keys)
+    real_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "research_agent.db")
+    os.environ["DATABASE_PATH"] = real_db_path
     model_type = model_config["model_type"]
     pytest_marker = model_config["pytest_marker"]
     skip_reason = model_config["skip_reason"]
