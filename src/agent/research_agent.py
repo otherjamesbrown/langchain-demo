@@ -381,10 +381,17 @@ class ResearchAgent:
             self._step_tracker,
         ]
         
-        # Add minimum iteration enforcement for local models as a backup
-        # Structured output should naturally enforce multiple iterations, but middleware helps
-        if self.model_type == "local":
-            middleware.append(MinimumIterationMiddleware(min_iterations=3))
+        # NOTE: MinimumIterationMiddleware was attempted but doesn't work effectively
+        # The middleware can inject continuation messages, but the agent still stops
+        # after 1 iteration. The injected messages also clutter the UI display.
+        # 
+        # Root cause: Without structured output enforcement (which ChatLlamaCpp lacks),
+        # there's no mechanism to force comprehensive research. The agent decides it's
+        # "done" based on its own judgment, which middleware cannot override.
+        #
+        # Leaving this disabled to avoid UI clutter without functional benefit.
+        # if self.model_type == "local":
+        #     middleware.append(MinimumIterationMiddleware(min_iterations=3))
         
         # Add safety limits
         middleware.extend([

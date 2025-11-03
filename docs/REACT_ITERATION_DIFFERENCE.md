@@ -169,13 +169,17 @@ Add to `_build_system_prompt()` in `src/agent/research_agent.py`:
 
 ---
 
-### ⚠️ Solution 3: Add Minimum Iteration Middleware (Attempted - Limited Success)
+### ❌ Solution 3: Add Minimum Iteration Middleware (Failed - Disabled)
 
-**Status**: Code has been implemented but doesn't work as expected due to LangChain architecture limitations.
+**Status**: Implemented but ineffective - **disabled to avoid UI clutter**.
 
-**Issue**: LangChain's agent system makes finish/continue decisions internally and middleware cannot override them. Returning modified state from `after_model` doesn't prevent the agent from finishing when it decides to.
+**Why It Failed**: 
+- Middleware successfully injects continuation messages when agent tries to finish early
+- However, agent still stops after 1 iteration (middleware cannot override agent completion decisions)
+- Injected messages appear in "Agent Reasoning & Tool Calls" UI, confusing users
+- Creates UI noise without functional benefit
 
-Created middleware that attempts to ensure a minimum number of iterations before allowing completion, but the agent ignores the continuation requests.
+**Technical Details**: The middleware uses `@hook_config(can_jump_to=["model"])` and `jump_to="model"`, but the agent's internal completion logic overrides this. Without structured output enforcement, there's no mechanism to force continued research.
 
 **New file**: `src/agent/min_iteration_middleware.py`
 
@@ -274,18 +278,20 @@ def _check_missing_critical_fields(self, company_info: Optional[CompanyInfo]) ->
 
 ### For Production Use
 
-**Final Conclusion**: Local models limited to 1-2 iterations due to ChatLlamaCpp constraints
+**Final Conclusion**: Local models limited to 1 iteration due to ChatLlamaCpp constraints
 
-1. ❌ **Solution 1 Not Viable**: ChatLlamaCpp lacks `tool_choice` support required by both ToolStrategy and ProviderStrategy
-2. ✅ **Solution 2 Implemented**: Enhanced system prompt encourages thorough research (advisory only)
-3. ✅ **Solution 3 Implemented**: Minimum iteration middleware with `jump_to="model"` provides backup enforcement
-4. 💡 **Reality Check**: Without structured output, local models will perform 1-2 iterations vs 4-5 for remote models
+1. ❌ **Solution 1 Failed**: ChatLlamaCpp lacks `tool_choice` support required by both ToolStrategy and ProviderStrategy
+2. ✅ **Solution 2 Active**: Enhanced system prompt encourages thorough research (advisory only, minimal impact)
+3. ❌ **Solution 3 Disabled**: Minimum iteration middleware created UI clutter without forcing additional iterations
+4. 💡 **Reality**: Local models perform **1 iteration**, remote models perform **4-5 iterations**
 
 **Architectural Limitation**: ChatLlamaCpp's tool calling support is basic - it can call tools but lacks advanced features like `tool_choice` parameter. This prevents structured output strategies from working.
 
+**Recommendation**: Use **Gemini/OpenAI/Anthropic** for production if you need comprehensive multi-iteration research.
+
 ### For Development/Testing
 
-Use **Solution 3** (minimum iteration middleware) as a safeguard to ensure comprehensive research during development.
+Accept that local models will perform 1 iteration. For development/testing purposes where you need comprehensive research, use remote models (Gemini with API key is fast and cost-effective for testing).
 
 ### Quick Fix (Already Done)
 
@@ -346,8 +352,8 @@ python scripts/test_llama_diagnostics.py BitMovin --max-iterations 10
 **Last Updated**: 2025-11-03  
 **Changes Applied**:
 - ❌ Solution 1: ToolStrategy failed - ChatLlamaCpp lacks `tool_choice` parameter support
-- ✅ Solution 2: Enhanced system prompt with explicit iteration requirements  
-- ✅ Solution 3: Minimum iteration middleware with `@hook_config` and `jump_to="model"`
+- ✅ Solution 2: Enhanced system prompt with explicit iteration requirements (minimal impact)
+- ❌ Solution 3: Minimum iteration middleware disabled - created UI clutter without functional benefit
 
 **Key Discovery via LangChain MCP Documentation**:
 - **ChatLlamaCpp has LIMITED tool calling support**:
