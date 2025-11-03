@@ -55,14 +55,16 @@ echo "   Dashboard will be available at: http://localhost:$PORT"
 echo ""
 
 # Activate virtual environment if it exists
+VENV_PYTHON="python3"
 if [ -d "venv" ]; then
     source venv/bin/activate
+    VENV_PYTHON="python"
 fi
 
 # Load environment variables from .env file using python-dotenv
 if [ -f ".env" ]; then
     echo "   Loading environment variables from .env..."
-    python3 -c "
+    $VENV_PYTHON -c "
 import os
 from dotenv import load_dotenv
 load_dotenv('.env')
