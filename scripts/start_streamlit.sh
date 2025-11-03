@@ -76,11 +76,16 @@ with open('.env', 'r') as f:
             key, value = line.split('=', 1)
             env_vars[key.strip()] = value.strip()
 for key, value in env_vars.items():
-    print("export {}='{}'".format(key, value))
+    print("{}='{}'".format(key, value))
 ENDPYTHON
-    $VENV_PYTHON /tmp/load_env.py > /tmp/streamlit_env.sh
-    source /tmp/streamlit_env.sh
-    rm /tmp/load_env.py /tmp/streamlit_env.sh
+    # Read env vars from Python and export them
+    while IFS='=' read -r key value; do
+        # Remove surrounding single quotes from value
+        value="${value#\'}"
+        value="${value%\'}"
+        export "$key=$value"
+    done < <($VENV_PYTHON /tmp/load_env.py)
+    rm /tmp/load_env.py
 fi
 
 # Start Streamlit
