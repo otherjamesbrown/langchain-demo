@@ -35,6 +35,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
 from pydantic import ValidationError
 
+from src.agent.min_iteration_middleware import MinimumIterationMiddleware  # type: ignore[import]
 from src.models.model_factory import get_chat_model  # type: ignore[import]
 from src.models.local_registry import (  # type: ignore[import]
     DEFAULT_LOCAL_MODEL_KEY,
@@ -374,16 +375,26 @@ class ResearchAgent:
 
         chat_model = self._initialise_model()
 
+        # Base middleware for all models
         middleware = [
             self._step_tracker,
+        ]
+        
+        # Add minimum iteration enforcement for local models only
+        # Remote models use structured output which naturally enforces multiple iterations
+        if self.model_type == "local":
+            middleware.append(MinimumIterationMiddleware(min_iterations=3))
+        
+        # Add safety limits
+        middleware.extend([
             ModelCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
-        ]
+        ])
 
         # Structured output only works properly with remote models (Gemini, OpenAI, Anthropic)
         # Local models (ChatLlamaCpp) don't support response_format correctly - it gets
         # treated as a tool which causes "tool_choice='any'" errors. 
-        # Solution: Keep enhanced prompts for local models, use structured output for remote.
+        # Solution: Use MinimumIterationMiddleware for local models, structured output for remote.
         response_format = CompanyInfo if self.model_type != "local" else None
 
         return create_agent(

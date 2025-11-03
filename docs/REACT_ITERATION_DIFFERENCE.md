@@ -151,9 +151,11 @@ Add to `_build_system_prompt()` in `src/agent/research_agent.py`:
 
 ---
 
-### 🎯 Solution 3: Add Minimum Iteration Middleware
+### ✅ Solution 3: Add Minimum Iteration Middleware (Implemented)
 
-Create middleware that ensures a minimum number of iterations before allowing completion.
+**Status**: Code has been implemented and integrated into the research agent.
+
+Created middleware that ensures a minimum number of iterations before allowing completion.
 
 **New file**: `src/agent/min_iteration_middleware.py`
 
@@ -252,11 +254,12 @@ def _check_missing_critical_fields(self, company_info: Optional[CompanyInfo]) ->
 
 ### For Production Use
 
-**Best Approach**: Use **Solution 2** (enhanced prompts) for local models
+**Best Approach**: Use **Solution 2** (enhanced prompts) + **Solution 3** (minimum iteration middleware) for local models
 
 1. ❌ **Solution 1 Not Viable**: Structured output causes tool choice errors with ChatLlamaCpp
 2. ✅ **Solution 2 Applied**: Enhanced system prompt to encourage thorough research
-3. 🧪 **Testing**: Verify enhanced prompts improve iteration count for Llama
+3. ✅ **Solution 3 Applied**: Minimum iteration middleware enforces 3+ iterations for local models
+4. 🧪 **Testing**: Verify Llama now performs 3+ iterations like Gemini
 
 ### For Development/Testing
 
@@ -317,10 +320,11 @@ python scripts/test_llama_diagnostics.py BitMovin --max-iterations 10
 
 ---
 
-**Status**: ✅ **SOLUTION 2 IMPLEMENTED** (Solution 1 Not Compatible)  
+**Status**: ✅ **SOLUTIONS 2 & 3 IMPLEMENTED** (Solution 1 Not Compatible)  
 **Last Updated**: 2025-11-03  
 **Changes Applied**:
 - ❌ Solution 1: Structured output not compatible with ChatLlamaCpp (causes tool_choice errors)
 - ✅ Solution 2: Enhanced system prompt with explicit iteration requirements
-**Next Steps**: Test Llama with enhanced prompts and monitor if iteration count improves
+- ✅ Solution 3: Minimum iteration middleware enforces 3+ iterations for local models
+**Next Steps**: Test Llama with middleware and verify 3+ iterations are enforced
 
