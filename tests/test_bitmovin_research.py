@@ -213,6 +213,20 @@ def test_bitmovin_research_across_models(model_config: Dict[str, Any], mock_env_
     # Use real database path for integration tests (has API keys)
     real_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "research_agent.db")
     os.environ["DATABASE_PATH"] = real_db_path
+    
+    # For integration tests, also preserve real API keys from environment
+    # Remove mock API keys so real ones from .env can be used
+    # This allows integration tests to use real API keys for web search
+    real_serper_key = os.getenv("SERPER_API_KEY")
+    real_tavily_key = os.getenv("TAVILY_API_KEY")
+    if real_serper_key and real_serper_key != "test_serper_key":
+        # Keep real Serper key if it exists
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+        os.environ["SERPER_API_KEY"] = real_serper_key
+    if real_tavily_key and real_tavily_key != "test_tavily_key":
+        # Keep real Tavily key if it exists
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        os.environ["TAVILY_API_KEY"] = real_tavily_key
     model_type = model_config["model_type"]
     pytest_marker = model_config["pytest_marker"]
     skip_reason = model_config["skip_reason"]
