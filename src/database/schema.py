@@ -7,7 +7,7 @@ storing company information, search history, and execution metadata.
 
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, Float, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, Float, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import os
@@ -358,6 +358,259 @@ class AppSetting(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - repr for debugging only
         return f"<AppSetting(key='{self.key}')>"
+
+
+# ============================================================================
+# Testing Framework Tables - Stages 1-3
+# ============================================================================
+
+class PromptVersion(Base):
+    """
+    Stores versioned prompts for research agent.
+    
+    Educational: This enables prompt versioning for A/B testing and tracking
+    prompt engineering experiments. Each prompt can have multiple versions,
+    allowing comparison of accuracy across different prompt iterations.
+    """
+    
+    __tablename__ = "prompt_versions"
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Prompt identification
+    prompt_name = Column(String(255), nullable=False, index=True)  # e.g., "research-agent-prompt"
+    version = Column(String(50), nullable=False, index=True)  # e.g., "1.0", "1.1", "v2-base"
+    
+    # Prompt content
+    instructions_content = Column(Text, nullable=False)  # RESEARCH INSTRUCTIONS section
+    classification_reference_content = Column(Text, nullable=True)  # CLASSIFICATION REFERENCE section
+    full_content = Column(Text, nullable=True)  # Full markdown content for reference
+    
+    # Prompt metadata
+    description = Column(Text, nullable=True)  # Description of changes in this version
+    created_by = Column(String(255), nullable=True)  # User/author who created this version
+    is_active = Column(Boolean, default=True, nullable=False)  # Whether this version is currently active
+    
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Composite unique constraint
+    __table_args__ = (
+        UniqueConstraint('prompt_name', 'version', name='uq_prompt_version'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PromptVersion(id={self.id}, name='{self.prompt_name}', version='{self.version}')>"
+
+
+class GradingPromptVersion(Base):
+    """
+    Stores versioned grading prompts for LLM output validation.
+    
+    Educational: Similar to agent prompts, grading prompts also evolve over time.
+    This table tracks different versions of grading prompts to ensure consistency
+    in how we evaluate model outputs across different test runs.
+    """
+    
+    __tablename__ = "grading_prompt_versions"
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Prompt identification
+    version = Column(String(50), nullable=False, unique=True, index=True)  # e.g., "1.0", "1.1"
+    
+    # Prompt content
+    prompt_template = Column(Text, nullable=False)  # Template with placeholders
+    scoring_rubric = Column(Text, nullable=True)  # Detailed scoring rules
+    
+    # Prompt metadata
+    description = Column(Text, nullable=True)  # Description of changes in this version
+    is_active = Column(Boolean, default=True, nullable=False)
+    consistency_score = Column(Float, nullable=True)  # Track grading consistency (0-1)
+    
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    def __repr__(self) -> str:
+        return f"<GradingPromptVersion(id={self.id}, version='{self.version}')>"
+
+
+class TestRun(Base):
+    """
+    Represents a single test run with a specific prompt version.
+    
+    Educational: This links together all components of a test run - the prompt version,
+    company being tested, and all outputs/validation results. Test runs can be grouped
+    into test suites for multi-company testing.
+    """
+    
+    __tablename__ = "test_runs"
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Test identification
+    test_name = Column(String(255), nullable=False, index=True)  # e.g., "llm-output-validation"
+    company_name = Column(String(255), nullable=False, index=True)
+    
+    # Test suite grouping (for multi-company test runs)
+    test_suite_name = Column(String(255), nullable=True, index=True)  # Groups multiple companies together
+    
+    # Prompt version used
+    prompt_version_id = Column(Integer, ForeignKey("prompt_versions.id"), nullable=False, index=True)
+    prompt_name = Column(String(255), nullable=False)  # Denormalized for easy querying
+    prompt_version = Column(String(50), nullable=False)  # Denormalized for easy querying
+    
+    # Test run metadata
+    description = Column(Text, nullable=True)  # Optional description of this test run
+    executed_by = Column(String(255), nullable=True)  # User who ran the test
+    
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationship
+    prompt_version_obj = relationship("PromptVersion", backref="test_runs")
+    
+    def __repr__(self) -> str:
+        suite_info = f", suite='{self.test_suite_name}'" if self.test_suite_name else ""
+        return f"<TestRun(id={self.id}, test='{self.test_name}', company='{self.company_name}'{suite_info}, prompt='{self.prompt_name}@{self.prompt_version}')>"
+
+
+class LLMOutputValidation(Base):
+    """
+    Stores LLM outputs for validation testing.
+    
+    Educational: This table stores the actual outputs from each model being tested,
+    including all CompanyInfo fields. It tracks token usage and costs for cost analysis,
+    and includes ground truth validation fields for quality assurance.
+    """
+    
+    __tablename__ = "llm_output_validation"
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Link to test run
+    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False, index=True)
+    
+    # Test identification
+    test_name = Column(String(255), nullable=False, index=True)  # e.g., "llm-output-validation"
+    company_name = Column(String(255), nullable=False, index=True)
+    model_configuration_id = Column(Integer, ForeignKey("model_configurations.id"), nullable=True, index=True)
+    model_name = Column(String(255), nullable=False)
+    model_provider = Column(String(50), nullable=False)
+    
+    # All CompanyInfo fields as columns
+    company_name_field = Column(String(255), nullable=True)
+    industry = Column(String(255), nullable=True)
+    company_size = Column(String(100), nullable=True)
+    headquarters = Column(String(255), nullable=True)
+    founded = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    website = Column(String(512), nullable=True)
+    products = Column(JSON, nullable=True)  # List[str]
+    competitors = Column(JSON, nullable=True)  # List[str]
+    revenue = Column(String(100), nullable=True)
+    funding_stage = Column(String(100), nullable=True)
+    growth_stage = Column(String(100), nullable=True)
+    industry_vertical = Column(String(255), nullable=True)
+    sub_industry_vertical = Column(String(255), nullable=True)
+    financial_health = Column(String(100), nullable=True)
+    business_and_technology_adoption = Column(String(255), nullable=True)
+    primary_workload_philosophy = Column(String(255), nullable=True)
+    buyer_journey = Column(String(100), nullable=True)
+    budget_maturity = Column(String(100), nullable=True)
+    cloud_spend_capacity = Column(String(100), nullable=True)
+    procurement_process = Column(String(100), nullable=True)
+    key_personas = Column(JSON, nullable=True)  # List[str]
+    
+    # Execution metadata
+    execution_time_seconds = Column(Float, nullable=True)
+    iterations = Column(Integer, nullable=True)
+    success = Column(Boolean, nullable=False)
+    raw_output = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    # Token usage tracking (for cost analysis)
+    input_tokens = Column(Integer, nullable=True)  # Tokens sent to model
+    output_tokens = Column(Integer, nullable=True)  # Tokens generated by model
+    total_tokens = Column(Integer, nullable=True)  # input + output
+    estimated_cost_usd = Column(Float, nullable=True)  # Calculated cost based on model pricing
+    
+    # Ground truth validation (for Gemini Pro outputs)
+    ground_truth_status = Column(String(50), nullable=True)  # 'unvalidated', 'validated', 'disputed', 'corrected'
+    human_validated_at = Column(DateTime, nullable=True)
+    validation_notes = Column(Text, nullable=True)
+    
+    # Timestamp for refresh logic
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    test_run = relationship("TestRun", backref="llm_outputs")
+    
+    def __repr__(self) -> str:
+        return f"<LLMOutputValidation(id={self.id}, test='{self.test_name}', company='{self.company_name}', model='{self.model_name}')>"
+
+
+class LLMOutputValidationResult(Base):
+    """
+    Stores accuracy scores from Gemini Flash grading.
+    
+    Educational: This table stores the results of grading each model's output against
+    the ground truth (Gemini Pro output). It includes field-level accuracy scores,
+    aggregate metrics, and grading metadata. This enables systematic comparison
+    of prompt versions and model performance.
+    """
+    
+    __tablename__ = "llm_output_validation_results"
+    
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Link to output record and test run
+    output_id = Column(Integer, ForeignKey("llm_output_validation.id"), nullable=False, index=True)
+    test_run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False, index=True)
+    
+    # Test identification
+    test_name = Column(String(255), nullable=False, index=True)
+    company_name = Column(String(255), nullable=False, index=True)
+    model_name = Column(String(255), nullable=False, index=True)
+    model_provider = Column(String(50), nullable=False)
+    
+    # Field-level accuracy scores with enhanced metadata
+    field_accuracy_scores = Column(JSON, nullable=False)  # {field_name: {score, match_type, explanation, confidence}}
+    
+    # Aggregate scores
+    overall_accuracy = Column(Float, nullable=False)  # Average of all field scores (0-100)
+    required_fields_accuracy = Column(Float, nullable=True)  # Average of required fields
+    optional_fields_accuracy = Column(Float, nullable=True)  # Average of optional fields
+    weighted_accuracy = Column(Float, nullable=True)  # Weighted average (critical fields count more)
+    
+    # Grading metadata
+    graded_by_model = Column(String(100), nullable=False, default="gemini-flash-latest")
+    grading_prompt_version_id = Column(Integer, ForeignKey("grading_prompt_versions.id"), nullable=True, index=True)
+    grading_prompt = Column(Text, nullable=True)  # Store the prompt used for grading
+    grading_response = Column(Text, nullable=True)  # Store raw grading response
+    grading_errors = Column(JSON, nullable=True)  # Any errors during grading
+    grading_confidence = Column(Float, nullable=True)  # Average confidence from grader (0-1)
+    
+    # Token usage for grading (for cost analysis)
+    grading_input_tokens = Column(Integer, nullable=True)  # Tokens sent to grader
+    grading_output_tokens = Column(Integer, nullable=True)  # Tokens generated by grader
+    grading_total_tokens = Column(Integer, nullable=True)  # input + output
+    grading_cost_usd = Column(Float, nullable=True)  # Cost of grading operation
+    
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    output = relationship("LLMOutputValidation", backref="validation_results")
+    test_run = relationship("TestRun", backref="validation_results")
+    
+    def __repr__(self) -> str:
+        return f"<LLMOutputValidationResult(id={self.id}, output_id={self.output_id}, overall={self.overall_accuracy:.1f}%)>"
 
 
 def get_database_url() -> str:
