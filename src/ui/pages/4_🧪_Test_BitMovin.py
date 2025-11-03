@@ -99,7 +99,18 @@ def get_available_models_from_database(session) -> List[Dict[str, Any]]:
                 is_usable = True
         else:
             api_key = get_api_key(config.provider, session=session)
-            if api_key and api_key.strip():
+            # Check if API key exists and is not a placeholder
+            placeholder_keys = [
+                "",
+                f"your_{config.provider}_api_key_here",
+                f"sk-your_{config.provider}_key_here",
+                "your_anthropic_key_here",
+                "sk-ant-your_anthropic_key_here",
+            ]
+            if (api_key and api_key.strip() and 
+                api_key not in placeholder_keys and
+                not api_key.startswith("sk-ant-your_") and
+                "placeholder" not in api_key.lower()):
                 is_usable = True
         
         if is_usable:
