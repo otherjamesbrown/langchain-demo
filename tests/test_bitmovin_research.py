@@ -214,19 +214,28 @@ def test_bitmovin_research_across_models(model_config: Dict[str, Any], mock_env_
     real_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "research_agent.db")
     os.environ["DATABASE_PATH"] = real_db_path
     
-    # For integration tests, also preserve real API keys from environment
-    # Remove mock API keys so real ones from .env can be used
-    # This allows integration tests to use real API keys for web search
-    real_serper_key = os.getenv("SERPER_API_KEY")
-    real_tavily_key = os.getenv("TAVILY_API_KEY")
-    if real_serper_key and real_serper_key != "test_serper_key":
-        # Keep real Serper key if it exists
-        monkeypatch.delenv("SERPER_API_KEY", raising=False)
-        os.environ["SERPER_API_KEY"] = real_serper_key
-    if real_tavily_key and real_tavily_key != "test_tavily_key":
-        # Keep real Tavily key if it exists
-        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-        os.environ["TAVILY_API_KEY"] = real_tavily_key
+    # For integration tests, also preserve real API keys from .env file
+    # Load directly from .env since mock_env_vars fixture overrides environment
+    from pathlib import Path
+    from dotenv import load_dotenv
+    
+    env_path = Path(os.path.dirname(os.path.dirname(__file__))) / ".env"
+    if env_path.exists():
+        # Load .env to get real keys (dotenv won't override existing env vars by default)
+        # But we need to override the mock values, so we'll manually read them
+        env_vars = {}
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+        
+        # Restore real API keys from .env file
+        if "SERPER_API_KEY" in env_vars and env_vars["SERPER_API_KEY"]:
+            monkeypatch.setenv("SERPER_API_KEY", env_vars["SERPER_API_KEY"])
+        if "TAVILY_API_KEY" in env_vars and env_vars["TAVILY_API_KEY"]:
+            monkeypatch.setenv("TAVILY_API_KEY", env_vars["TAVILY_API_KEY"])
     model_type = model_config["model_type"]
     pytest_marker = model_config["pytest_marker"]
     skip_reason = model_config["skip_reason"]
