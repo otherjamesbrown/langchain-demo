@@ -810,23 +810,41 @@ class LLMOutputValidationRunner:
         test_suite_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Run the LLM output validation test.
+        Run the complete LLM output validation test workflow.
+        
+        Educational: This demonstrates the complete testing workflow:
+        1. Create test run record with prompt version
+        2. Ensure Gemini Pro ground truth exists (with 24-hour caching)
+        3. Run other models with the same prompt version
+        4. Grade all outputs using Gemini Flash field-by-field
+        5. Calculate aggregate accuracy scores
+        6. Store all results in database
         
         Workflow:
         1. Create test run record with prompt version
         2. Check if Gemini Pro output exists and is fresh (<24hrs) for this test run
         3. If not, run agent with Gemini Pro to get ground truth
         4. Store ground truth in database
+        5. Run other models (excludes Gemini Pro)
+        6. Store all model outputs
+        7. Grade each output using Gemini Flash
+        8. Calculate aggregate statistics
         
         Args:
             company_name: Company to research
-            other_models: List of model configs to test (excludes Gemini Pro) - not used in Stage 8
-            force_refresh: Force refresh even if Gemini Pro data is fresh
+            other_models: List of model configs to test (excludes Gemini Pro). 
+                         If None, uses all active models from database.
+            force_refresh: Force refresh even if Gemini Pro data is fresh (<24hrs)
             max_iterations: Max agent iterations
             test_suite_name: Optional name to group multiple company tests together
             
         Returns:
-            Dict with test results summary
+            Dict with test results summary including:
+            - test_run_id: ID of the test run record
+            - gemini_pro_output_id: ID of ground truth output
+            - other_outputs_count: Number of other models tested
+            - grading_results_count: Number of outputs graded
+            - aggregate_stats: Average accuracy scores and costs
         """
         session = get_session()
         try:
@@ -893,6 +911,38 @@ class LLMOutputValidationRunner:
             
             session.commit()
             
+            # Step 4: Grade all outputs using Gemini Flash (Stage 10-11)
+            grading_results = []
+            for other_output in other_outputs:
+                grading_result = self._grade_output_with_flash(
+                    session=session,
+                    gemini_pro_output=gemini_pro_output,
+                    other_output=other_output,
+                    company_name=company_name,
+                    test_run_id=test_run.id,
+                )
+                
+                if grading_result:
+                    grading_results.append(grading_result)
+            
+            session.commit()
+            
+            # Calculate aggregate statistics from grading results
+            aggregate_stats = {}
+            if grading_results:
+                # Calculate averages, handling None values
+                overall_accuracies = [r.overall_accuracy for r in grading_results]
+                required_accuracies = [r.required_fields_accuracy for r in grading_results if r.required_fields_accuracy is not None]
+                weighted_accuracies = [r.weighted_accuracy for r in grading_results if r.weighted_accuracy is not None]
+                grading_costs = [r.grading_cost_usd for r in grading_results if r.grading_cost_usd is not None]
+                
+                aggregate_stats = {
+                    "average_overall_accuracy": sum(overall_accuracies) / len(overall_accuracies) if overall_accuracies else 0.0,
+                    "average_required_fields_accuracy": sum(required_accuracies) / len(required_accuracies) if required_accuracies else None,
+                    "average_weighted_accuracy": sum(weighted_accuracies) / len(weighted_accuracies) if weighted_accuracies else None,
+                    "total_grading_cost": sum(grading_costs) if grading_costs else 0.0,
+                }
+            
             return {
                 "success": True,
                 "test_run_id": test_run.id,
@@ -902,6 +952,9 @@ class LLMOutputValidationRunner:
                 "ground_truth_status": gemini_pro_output.ground_truth_status,
                 "other_outputs_count": len(other_outputs),
                 "other_output_ids": [o.id for o in other_outputs],
+                "grading_results_count": len(grading_results),
+                "grading_result_ids": [r.id for r in grading_results],
+                "aggregate_stats": aggregate_stats,
             }
             
         finally:
