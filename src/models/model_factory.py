@@ -49,7 +49,7 @@ ModelType = Literal["local", "openai", "anthropic", "gemini"]
 
 
 def _fetch_api_key(provider: str) -> str | None:
-    """Retrieve an API key from the database if available."""
+    """Retrieve an API key from the database (primary) or environment (fallback)."""
 
     try:
         from src.database.operations import get_api_key
@@ -57,9 +57,39 @@ def _fetch_api_key(provider: str) -> str | None:
         return None
 
     try:
-        return get_api_key(provider)
+        # Try database first
+        db_key = get_api_key(provider)
+        if db_key:
+            return db_key
     except Exception:
-        return None
+        pass
+    
+    # Fallback to environment variable
+    env_vars = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+    }
+    env_var = env_vars.get(provider)
+    if env_var:
+        return os.getenv(env_var)
+    
+    return None
+
+
+def _fetch_app_setting(key: str, default: str | None = None) -> str | None:
+    """Retrieve an app setting from the database (primary) or environment (fallback)."""
+    
+    try:
+        from src.database.operations import get_app_setting
+        db_value = get_app_setting(key)
+        if db_value:
+            return db_value
+    except Exception:
+        pass
+    
+    # Fallback to environment variable
+    return os.getenv(key, default)
 
 
 def get_llm(
@@ -87,15 +117,20 @@ def get_llm(
         ValueError: If model_type or required configuration is invalid
         ImportError: If required packages are not installed
     """
-    # Get model type from env or parameter
+    # Get model type: parameter > database > env > default
     if model_type is None:
-        model_type = os.getenv("MODEL_TYPE", "local").lower()
+        db_model_type = _fetch_app_setting("MODEL_TYPE")
+        model_type = (db_model_type or os.getenv("MODEL_TYPE", "local")).lower()
     
     if model_type not in ["local", "openai", "anthropic", "gemini"]:
         raise ValueError(f"Invalid model_type: {model_type}")
     
-    # Get temperature from env or parameter
-    temp = float(os.getenv("TEMPERATURE", temperature))
+    # Get temperature: parameter > database > env > default
+    temp_str = _fetch_app_setting("TEMPERATURE") or os.getenv("TEMPERATURE")
+    if temp_str:
+        temp = float(temp_str)
+    else:
+        temp = temperature
     
     # Create appropriate LLM instance
     if model_type == "local":
@@ -143,13 +178,20 @@ def get_chat_model(
         ValueError: If configuration is incomplete.
         ImportError: If the required provider package is missing.
     """
+    # Get model type: parameter > database > env > default
     if model_type is None:
-        model_type = os.getenv("MODEL_TYPE", "local").lower()
+        db_model_type = _fetch_app_setting("MODEL_TYPE")
+        model_type = (db_model_type or os.getenv("MODEL_TYPE", "local")).lower()
 
     if model_type not in ["local", "openai", "anthropic", "gemini"]:
         raise ValueError(f"Invalid model_type: {model_type}")
 
-    temp = float(os.getenv("TEMPERATURE", temperature))
+    # Get temperature: parameter > database > env > default
+    temp_str = _fetch_app_setting("TEMPERATURE") or os.getenv("TEMPERATURE")
+    if temp_str:
+        temp = float(temp_str)
+    else:
+        temp = temperature
 
     if model_type == "local":
         return _create_local_chat_model(
@@ -172,8 +214,44 @@ def _select_local_model(
     model_path: str | None,
     local_model_name: str | None,
 ) -> tuple[Path, str, int | None, str | None, str | None]:
-    """Resolve the local model to use and return metadata for downstream use."""
-
+    """
+    Resolve the local model to use and return metadata for downstream use.
+    
+    Priority order:
+    1. Function parameters (model_path or local_model_name)
+    2. Database (last used model configuration)
+    3. Environment variables (MODEL_PATH or LOCAL_MODEL_NAME)
+    4. Code registry default
+    """
+    
+    # First, try to get model from database (last used model)
+    try:
+        from src.database.operations import get_default_model_configuration
+        db_model = get_default_model_configuration()
+        if db_model and db_model.provider == "local":
+            # Database has a local model configured
+            if db_model.model_path:
+                resolved = Path(db_model.model_path).expanduser()
+                if not resolved.is_absolute():
+                    resolved = Path(__file__).resolve().parent.parent.parent / resolved
+                resolved = resolved.resolve()
+                
+                # Get metadata from database or registry
+                metadata = db_model.extra_metadata or {}
+                context_window = metadata.get("context_window")
+                chat_format = metadata.get("chat_format")
+                display_name = db_model.name
+                registry_key = db_model.model_key
+                
+                # If no registry key, try to guess from path
+                if not registry_key:
+                    registry_key = guess_local_model_key(resolved)
+                
+                return resolved, display_name, context_window, registry_key, chat_format
+    except Exception:
+        pass  # Fallback to other sources
+    
+    # Fallback to parameter or environment
     candidate_path = model_path or os.getenv("MODEL_PATH")
     if candidate_path:
         resolved = Path(candidate_path).expanduser()
@@ -194,6 +272,7 @@ def _select_local_model(
                 pass
         return resolved, display_name, context_window, registry_key, chat_format
 
+    # Fallback to registry key from parameter or env
     registry_key = (
         local_model_name
         or os.getenv("LOCAL_MODEL_NAME")
@@ -294,13 +373,26 @@ def _create_openai_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "OpenAI is not installed. Install with: pip install langchain-openai"
         )
     
-    api_key = os.getenv("OPENAI_API_KEY") or _fetch_api_key("openai")
+    api_key = _fetch_api_key("openai")
     if not api_key:
         raise ValueError(
-            "OpenAI API key is required. Set OPENAI_API_KEY environment variable"
+            "OpenAI API key is required. Set it in the database or OPENAI_API_KEY environment variable"
         )
     
-    model_name = kwargs.get("model_name", os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"))
+    # Get model name: parameter > database config > env > default
+    model_name = kwargs.get("model_name")
+    if not model_name:
+        # Try to get from database model configuration
+        try:
+            from src.database.operations import get_default_model_configuration
+            db_model = get_default_model_configuration()
+            if db_model and db_model.provider == "openai" and db_model.api_identifier:
+                model_name = db_model.api_identifier
+        except Exception:
+            pass
+        
+        if not model_name:
+            model_name = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
     
     return ChatOpenAI(
         model=model_name,
@@ -317,13 +409,26 @@ def _create_anthropic_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "Anthropic is not installed. Install with: pip install langchain-anthropic"
         )
     
-    api_key = os.getenv("ANTHROPIC_API_KEY") or _fetch_api_key("anthropic")
+    api_key = _fetch_api_key("anthropic")
     if not api_key:
         raise ValueError(
-            "Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable"
+            "Anthropic API key is required. Set it in the database or ANTHROPIC_API_KEY environment variable"
         )
     
-    model_name = kwargs.get("model_name", os.getenv("ANTHROPIC_MODEL", "claude-3-opus-20240229"))
+    # Get model name: parameter > database config > env > default
+    model_name = kwargs.get("model_name")
+    if not model_name:
+        # Try to get from database model configuration
+        try:
+            from src.database.operations import get_default_model_configuration
+            db_model = get_default_model_configuration()
+            if db_model and db_model.provider == "anthropic" and db_model.api_identifier:
+                model_name = db_model.api_identifier
+        except Exception:
+            pass
+        
+        if not model_name:
+            model_name = os.getenv("ANTHROPIC_MODEL", "claude-3-opus-20240229")
     
     return ChatAnthropic(
         model=model_name,
@@ -340,14 +445,26 @@ def _create_gemini_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "Google Generative AI is not installed. Install with: pip install langchain-google-genai"
         )
     
-    api_key = os.getenv("GOOGLE_API_KEY") or _fetch_api_key("gemini")
+    api_key = _fetch_api_key("gemini")
     if not api_key:
         raise ValueError(
-            "Google API key is required. Set GOOGLE_API_KEY environment variable"
+            "Google API key is required. Set it in the database or GOOGLE_API_KEY environment variable"
         )
     
-    # Support both 'model' and 'model_name' kwargs for consistency
-    model_name = kwargs.get("model") or kwargs.get("model_name", os.getenv("GEMINI_MODEL", "gemini-flash-latest"))
+    # Get model name: parameter > database config > env > default
+    model_name = kwargs.get("model") or kwargs.get("model_name")
+    if not model_name:
+        # Try to get from database model configuration
+        try:
+            from src.database.operations import get_default_model_configuration
+            db_model = get_default_model_configuration()
+            if db_model and db_model.provider == "gemini" and db_model.api_identifier:
+                model_name = db_model.api_identifier
+        except Exception:
+            pass
+        
+        if not model_name:
+            model_name = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
     
     return ChatGoogleGenerativeAI(
         model=model_name,

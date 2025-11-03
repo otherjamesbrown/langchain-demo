@@ -213,6 +213,37 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                 )
                 created = True
 
+        # Sync app-level settings from environment variables to database
+        # These settings will be used as defaults when database has no value
+        app_settings_to_sync = {
+            "MODEL_TYPE": os.getenv("MODEL_TYPE", "local"),
+            "TEMPERATURE": os.getenv("TEMPERATURE", "0.7"),
+            "MAX_ITERATIONS": os.getenv("MAX_ITERATIONS", "10"),
+        }
+        
+        for setting_key, env_value in app_settings_to_sync.items():
+            if env_value:  # Only sync if env variable is set
+                existing_setting = db_session.query(AppSetting).filter_by(key=setting_key).first()
+                if existing_setting is None:
+                    # Only set from env if database doesn't have it yet
+                    db_session.add(AppSetting(key=setting_key, value=env_value))
+                    created = True
+                # If database already has it, don't overwrite (database takes precedence)
+        
+        # Also sync API keys from environment if they exist
+        for provider, env_var in [
+            ("openai", "OPENAI_API_KEY"),
+            ("anthropic", "ANTHROPIC_API_KEY"),
+            ("gemini", "GOOGLE_API_KEY"),
+        ]:
+            env_key = os.getenv(env_var)
+            if env_key and env_key not in ["", f"your_{env_var.lower()}_here", f"sk-your_{provider}_key_here"]:
+                # Only sync if it's not a placeholder
+                existing = get_api_key(provider, session=db_session)
+                if not existing:
+                    upsert_api_key(provider, env_key, session=db_session)
+                    created = True
+
         if created:
             db_session.commit()
     except Exception:
@@ -330,6 +361,69 @@ def get_api_key(provider: str, session: Optional[Session] = None) -> Optional[st
     finally:
         if should_close:
             db_session.close()
+
+
+def get_app_setting(key: str, default: Optional[str] = None, session: Optional[Session] = None) -> Optional[str]:
+    """Retrieve an application setting from the database."""
+    
+    db_session, should_close = _resolve_session(session)
+    
+    try:
+        setting = db_session.query(AppSetting).filter_by(key=key).first()
+        return setting.value if setting and setting.value else default
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def set_app_setting(key: str, value: str, session: Optional[Session] = None) -> None:
+    """Store or update an application setting in the database."""
+    
+    db_session, should_close = _resolve_session(session)
+    
+    try:
+        setting = db_session.query(AppSetting).filter_by(key=key).first()
+        if setting is None:
+            setting = AppSetting(key=key, value=value)
+            db_session.add(setting)
+        else:
+            setting.value = value
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_default_model_configuration(session: Optional[Session] = None) -> Optional[ModelConfiguration]:
+    """
+    Get the default/active model configuration from database.
+    
+    Returns the last used model, or first available model if none set.
+    """
+    db_session, should_close = _resolve_session(session)
+    
+    try:
+        # First try to get last used model
+        last_used = get_last_used_model(session=db_session)
+        if last_used and last_used.is_active:
+            return last_used
+        
+        # Fallback to first active model
+        first_model = (
+            db_session.query(ModelConfiguration)
+            .filter(ModelConfiguration.is_active.is_(True))
+            .order_by(ModelConfiguration.id)
+            .first()
+        )
+        return first_model
+    finally:
+        if should_close:
+            db_session.close()
+
+
 def save_company_info(company_info: "CompanyInfo", session: Optional[Session] = None) -> Company:
     """
     Save company information to the database.
