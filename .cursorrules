@@ -81,10 +81,13 @@ This is an educational LangChain project demonstrating how to build a research a
 4. Write corresponding blog post after code is working
 
 ### Testing
+- **CRITICAL: All testing must be done on the remote server** - LangChain and dependencies are not installed locally
 - Write tests alongside code (in `tests/` directory)
 - Test individual components before integration
 - Use example data from `examples/` directory
 - Verify both local and remote model paths work
+- Connect to remote server via SSH to run tests: `ssh langchain@<server-ip>`
+- Test framework and research agent tests require full environment on server
 
 ### Code Examples
 - Make examples self-contained and runnable

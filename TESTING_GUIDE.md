@@ -1,5 +1,20 @@
 # Testing Guide - Quick Start
 
+## ⚠️ IMPORTANT: Testing Environment
+
+**All testing must be performed on the remote server**, not on local machines. The local development environment does not have LangChain and other required dependencies installed. 
+
+- Connect to server via SSH: `ssh langchain@<server-ip>`
+- Navigate to project: `cd ~/langchain-demo`
+- Activate virtual environment: `source venv/bin/activate`
+- Run tests from the server
+
+This includes:
+- Unit tests (`pytest tests/`)
+- Integration tests
+- Research agent tests
+- Testing framework tests (`src/testing/`)
+
 ## What Was Added
 
 A comprehensive test suite has been added to the project with **80+ tests** covering all major components.
@@ -21,15 +36,20 @@ tests/
 
 ## Quick Setup & Run
 
-### 1. Activate Your Virtual Environment
+### 1. Connect to Remote Server and Activate Virtual Environment
 
 ```bash
-# On your local machine
-source venv/bin/activate
+# SSH to remote server first
+ssh langchain@<server-ip>
 
-# On Linode/GCP server
-source ~/langchain-demo/venv/bin/activate
+# Then navigate to project directory
+cd ~/langchain-demo
+
+# Activate virtual environment
+source venv/bin/activate
 ```
+
+**Note:** Testing should NOT be done on local machines - LangChain dependencies are only available on the remote server.
 
 ### 2. Install Test Dependencies
 
