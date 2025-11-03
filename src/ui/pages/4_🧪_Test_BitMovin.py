@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-BitMovin Test Execution Page
+BitMovin Test Execution Page - Enhanced with Testing Framework
 
-Run automated tests for BitMovin research across all available models.
-Results are saved to the database for validation.
+Run automated tests for BitMovin research across all available models using
+the unified testing framework. Displays rich comparison views with confidence
+scores, visual indicators, and detailed field-by-field analysis.
 
 URL: http://host:8501/Test_BitMovin
 """
@@ -21,8 +22,9 @@ os.chdir(project_root)
 
 import streamlit as st
 import pandas as pd
-import time
+import json
 from datetime import datetime
+from typing import List, Dict, Any
 
 from src.database.schema import get_session, create_database
 from src.database.operations import (
@@ -32,10 +34,13 @@ from src.database.operations import (
     save_test_execution,
     get_test_executions,
 )
-from src.agent.research_agent import ResearchAgent, ResearchAgentResult
-from src.tools.models import CompanyInfo
 
-# Import validation functions (duplicated here to avoid import issues)
+# Import testing framework components
+from src.testing.test_runner import TestRunner, ModelTestResult, TestExecutionResult
+from src.testing.baselines import get_baseline
+from src.testing.matchers import FieldMatcher
+
+# Model availability checking (shared from CLI script logic)
 def check_package_installed(package_name: str) -> bool:
     """Check if a Python package is installed."""
     try:
@@ -43,110 +48,6 @@ def check_package_installed(package_name: str) -> bool:
         return True
     except ImportError:
         return False
-
-def validate_required_fields(company_info: CompanyInfo):
-    """Validate that all required fields are present and correct."""
-    errors = []
-    warnings = []
-    correct_fields = []
-    incorrect_fields = []
-    blank_fields = []
-    
-    # Expected values
-    expected_values = {
-        "company_name": "Bitmovin",
-        "industry": ["video", "streaming"],
-        "company_size": ["51", "200"],
-        "headquarters": ["san francisco", "california"],
-        "founded": 2013,
-    }
-    
-    # Check company_name
-    if not company_info.company_name or not company_info.company_name.strip():
-        blank_fields.append(("company_name", "missing or empty"))
-        errors.append("company_name is missing")
-    elif "bitmovin" not in company_info.company_name.lower():
-        incorrect_fields.append(("company_name", f"expected 'Bitmovin', got '{company_info.company_name}'"))
-        warnings.append(f"company_name mismatch: expected 'Bitmovin', got '{company_info.company_name}'")
-    else:
-        correct_fields.append("company_name")
-    
-    # Check industry
-    if not company_info.industry or not company_info.industry.strip():
-        blank_fields.append(("industry", "missing or empty"))
-        errors.append("industry is missing or empty")
-    else:
-        industry_lower = company_info.industry.lower()
-        if any(keyword in industry_lower for keyword in expected_values["industry"]):
-            correct_fields.append("industry")
-        else:
-            incorrect_fields.append(("industry", f"expected video/streaming related, got '{company_info.industry}'"))
-            warnings.append(f"industry may be incorrect: expected video/streaming related, got '{company_info.industry}'")
-    
-    # Check company_size
-    if not company_info.company_size or not company_info.company_size.strip():
-        blank_fields.append(("company_size", "missing or empty"))
-        errors.append("company_size is missing or empty")
-    else:
-        size_str = company_info.company_size
-        if any(keyword in size_str for keyword in expected_values["company_size"]):
-            correct_fields.append("company_size")
-        else:
-            incorrect_fields.append(("company_size", f"expected 51-200 range, got '{company_info.company_size}'"))
-    
-    # Check headquarters
-    if not company_info.headquarters or not company_info.headquarters.strip():
-        blank_fields.append(("headquarters", "missing or empty"))
-        errors.append("headquarters is missing or empty")
-    else:
-        hq_lower = company_info.headquarters.lower()
-        if any(keyword in hq_lower for keyword in expected_values["headquarters"]):
-            correct_fields.append("headquarters")
-        else:
-            incorrect_fields.append(("headquarters", f"expected San Francisco, California, got '{company_info.headquarters}'"))
-    
-    # Check founded
-    if company_info.founded is None:
-        blank_fields.append(("founded", "missing"))
-        errors.append("founded year is missing")
-    elif company_info.founded != expected_values["founded"]:
-        incorrect_fields.append(("founded", f"expected 2013, got {company_info.founded}"))
-        warnings.append(f"founded year mismatch: expected 2013, got {company_info.founded}")
-    else:
-        correct_fields.append("founded")
-    
-    return {
-        "errors": errors,
-        "warnings": warnings,
-        "correct": correct_fields,
-        "incorrect": incorrect_fields,
-        "blank": blank_fields,
-    }
-
-OPTIONAL_FIELDS = [
-    "growth_stage", "industry_vertical", "sub_industry_vertical",
-    "financial_health", "business_and_technology_adoption",
-    "primary_workload_philosophy", "buyer_journey",
-    "budget_maturity", "cloud_spend_capacity", "procurement_process",
-]
-
-def validate_optional_fields(company_info: CompanyInfo):
-    """Validate optional fields if they are present."""
-    present_fields = []
-    for field_name in OPTIONAL_FIELDS:
-        field_value = getattr(company_info, field_name, None)
-        if field_value is not None:
-            if isinstance(field_value, str) and field_value.strip():
-                present_fields.append(field_name)
-            elif isinstance(field_value, (int, float, bool)):
-                present_fields.append(field_name)
-            elif isinstance(field_value, list) and len(field_value) > 0:
-                present_fields.append(field_name)
-    
-    return {
-        "present_fields": present_fields,
-        "coverage": len(present_fields) / len(OPTIONAL_FIELDS) if OPTIONAL_FIELDS else 0,
-    }
 
 def check_provider_packages_installed(provider: str) -> bool:
     """Check if required packages are installed for a provider."""
@@ -161,32 +62,36 @@ def check_provider_packages_installed(provider: str) -> bool:
     if not required_package:
         return False
     
-    # Check if package can be imported
     try:
         if provider == "openai":
-            __import__("langchain_openai")
+            return check_package_installed("langchain_openai") or check_package_installed("openai")
         elif provider == "anthropic":
-            __import__("langchain_anthropic")
+            return check_package_installed("langchain_anthropic") or check_package_installed("anthropic")
         elif provider == "gemini":
-            __import__("langchain_google_genai")
+            return check_package_installed("langchain_google_genai") or check_package_installed("google.generativeai")
         elif provider == "local":
-            __import__("llama_cpp")
-        return True
+            return check_package_installed("llama_cpp") or check_package_installed("llama_cpp_python")
     except ImportError:
         return False
+    return False
 
-def get_available_models_from_database():
-    """Get available models from database."""
-    from src.database.operations import get_api_key
+def get_available_models_from_database(session) -> List[Dict[str, Any]]:
+    """
+    Get available model configurations from database.
     
+    Educational: This function validates that models are actually usable
+    (packages installed, model files exist, API keys available) before
+    allowing them to be selected for testing.
+    """
     model_configs = get_model_configurations(session=session)
     available_models = []
     
     for config in model_configs:
-        # First check if required packages are installed
+        # Check if required packages are installed
         if not check_provider_packages_installed(config.provider):
             continue
         
+        # Check if model is usable
         is_usable = False
         
         if config.provider == "local":
@@ -198,16 +103,68 @@ def get_available_models_from_database():
                 is_usable = True
         
         if is_usable:
-            available_models.append({
-                "provider": config.provider,
+            model_dict = {
                 "name": config.name,
-                "model_key": config.model_key,
-                "model_path": config.model_path,
-                "api_identifier": config.api_identifier,
+                "provider": config.provider,
                 "config_id": config.id,
-            })
+            }
+            
+            if config.provider == "local":
+                if config.model_path:
+                    model_dict["model_path"] = config.model_path
+                if config.model_key:
+                    model_dict["model_key"] = config.model_key
+            else:
+                if config.api_identifier:
+                    model_dict["api_identifier"] = config.api_identifier
+            
+            available_models.append(model_dict)
     
     return available_models
+
+def format_confidence_score(confidence: float) -> str:
+    """Format confidence score with color-coded indicator."""
+    percentage = confidence * 100
+    if percentage >= 80:
+        return f"✅ {percentage:.0f}%"
+    elif percentage >= 50:
+        return f"⚠️ {percentage:.0f}%"
+    else:
+        return f"❌ {percentage:.0f}%"
+
+def display_field_match_details(field_result, baseline_field):
+    """Display detailed field match information."""
+    status_icon = "✅" if field_result.is_match else "❌"
+    confidence_pct = field_result.confidence * 100
+    
+    # Create visual indicator based on confidence
+    if confidence_pct >= 80:
+        color = "green"
+        bg_color = "#d4edda"
+    elif confidence_pct >= 50:
+        color = "orange"
+        bg_color = "#fff3cd"
+    else:
+        color = "red"
+        bg_color = "#f8d7da"
+    
+    st.markdown(
+        f"""
+        <div style="background-color: {bg_color}; padding: 10px; border-radius: 5px; margin: 5px 0;">
+            <strong>{status_icon} {baseline_field.field_name}</strong><br>
+            <small>
+            Expected: <code>{baseline_field.expected_value}</code><br>
+            Actual: <code>{field_result.actual_value}</code><br>
+            Match Type: <code>{field_result.match_type}</code><br>
+            Confidence: <strong>{confidence_pct:.1f}%</strong>
+            </small>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    if field_result.error_message:
+        st.caption(f"⚠️ {field_result.error_message}")
 
 # Page config
 st.set_page_config(
@@ -225,7 +182,11 @@ def init_db():
 
 # Main page
 st.title("🧪 BitMovin Research Test")
-st.markdown("Run automated tests for BitMovin research across all available models")
+st.markdown("""
+Run automated tests for BitMovin research across all available models using the 
+**unified testing framework**. This page uses fuzzy matching, confidence scores, 
+and detailed field-by-field validation.
+""")
 
 # Initialize database
 try:
@@ -239,25 +200,59 @@ ensure_default_configuration(session=session)
 # Sidebar
 st.sidebar.header("⚙️ Test Configuration")
 
-# Get available models
-st.sidebar.info("This test validates that models can extract required company information for BitMovin.")
-st.sidebar.markdown("### Required Fields")
-st.sidebar.markdown("- company_name: Bitmovin")
-st.sidebar.markdown("- industry: Video Streaming Infrastructure / SaaS")
-st.sidebar.markdown("- company_size: 51-200 employees")
-st.sidebar.markdown("- headquarters: San Francisco, California, United States")
-st.sidebar.markdown("- founded: 2013")
-
-st.sidebar.markdown("### Optional Fields")
-st.sidebar.markdown("10 additional GTM classification fields")
+# Load baseline info
+try:
+    baseline = get_baseline("bitmovin")
+    st.sidebar.info(f"**Test:** {baseline.test_name}\n\n{baseline.description}")
+    
+    st.sidebar.markdown("### Required Fields")
+    for field_exp in baseline.required_fields:
+        match_type_icon = {
+            "exact": "🎯",
+            "keyword": "🔑",
+            "fuzzy": "📊",
+            "regex": "🔍",
+            "custom": "⚙️"
+        }
+        icon = match_type_icon.get(field_exp.match_type.value, "•")
+        st.sidebar.markdown(f"{icon} **{field_exp.field_name}** ({field_exp.match_type.value})")
+        if field_exp.description:
+            st.sidebar.caption(f"   {field_exp.description}")
+    
+    st.sidebar.markdown(f"\n### Optional Fields ({len(baseline.optional_fields)})")
+    st.sidebar.caption("GTM classification fields (growth_stage, industry_vertical, etc.)")
+    
+except Exception as e:
+    st.sidebar.error(f"Error loading baseline: {e}")
+    st.stop()
 
 # Get available models
 with st.spinner("Loading available models..."):
-    available_models = get_available_models_from_database()
+    available_models = get_available_models_from_database(session)
 
 if not available_models:
     st.error("No models available for testing. Please configure models and API keys.")
     st.stop()
+
+# Configuration section
+st.subheader("⚙️ Configuration")
+col_config1, col_config2 = st.columns(2)
+
+with col_config1:
+    max_iterations = st.number_input(
+        "Max Iterations",
+        min_value=1,
+        max_value=20,
+        value=10,
+        help="Maximum agent iterations per model"
+    )
+
+with col_config2:
+    verbose_mode = st.checkbox(
+        "Verbose Mode",
+        value=False,
+        help="Show detailed agent reasoning (slower, more output)"
+    )
 
 # Model selection
 st.subheader("Select Models to Test")
@@ -279,520 +274,286 @@ if not selected_models:
 # Run test button
 if st.button("🚀 Run Tests", type="primary"):
     st.markdown("---")
-    st.subheader("Test Execution")
     
+    # Initialize TestRunner
+    with st.spinner("Initializing test framework..."):
+        try:
+            runner = TestRunner(model_configs=selected_models)
+        except Exception as e:
+            st.error(f"Failed to initialize TestRunner: {e}")
+            st.stop()
+    
+    # Run tests with progress indicator
     progress_bar = st.progress(0)
     status_text = st.empty()
-    results_container = st.container()
     
-    results = []
+    status_text.text(f"Running test across {len(selected_models)} model(s)...")
     
-    for idx, model_config in enumerate(selected_models):
-        model_name = model_config['name']
-        model_type = model_config['provider']
+    try:
+        test_result: TestExecutionResult = runner.run_test(
+            baseline=baseline,
+            max_iterations=max_iterations,
+            verbose=verbose_mode,
+        )
         
-        progress = (idx) / len(selected_models)
-        progress_bar.progress(progress)
-        status_text.text(f"Testing {model_name} ({idx+1}/{len(selected_models)})...")
+        progress_bar.progress(1.0)
+        status_text.text("✅ All tests completed!")
         
-        with results_container:
-            with st.expander(f"Testing: {model_name}", expanded=False):
-                try:
-                    # Prepare agent configuration
-                    agent_kwargs = {
-                        "model_type": model_type,
-                        "verbose": False,
-                        "max_iterations": 10,
-                    }
-                    
-                    if model_type == "local":
-                        agent_kwargs["model_path"] = model_config.get("model_path")
-                        if model_config.get("model_key"):
-                            agent_kwargs["local_model"] = model_config["model_key"]
+        # Display results
+        st.markdown("---")
+        st.subheader("📊 Test Results Summary")
+        
+        # Overall metrics
+        col_metric1, col_metric2, col_metric3, col_metric4 = st.columns(4)
+        
+        with col_metric1:
+            st.metric("Average Score", f"{test_result.average_score:.1%}")
+        
+        with col_metric2:
+            st.metric("Best Model", test_result.best_model or "N/A")
+        
+        with col_metric3:
+            st.metric("Total Time", f"{test_result.execution_time:.1f}s")
+        
+        with col_metric4:
+            successful_count = sum(1 for mr in test_result.model_results if mr.success)
+            st.metric("Success Rate", f"{successful_count}/{len(test_result.model_results)}")
+        
+        # Model comparison table
+        st.markdown("### Model Comparison")
+        
+        comparison_data = []
+        for mr in test_result.model_results:
+            comparison_data.append({
+                "Model": mr.model_name,
+                "Provider": mr.model_provider,
+                "Overall Score": f"{mr.overall_score:.1%}",
+                "Required Fields": f"{mr.required_fields_score:.1%}",
+                "Optional Fields": f"{mr.optional_fields_score:.1%}",
+                "Success": "✅" if mr.success else "❌",
+                "Time": f"{mr.execution_time:.1f}s",
+                "Iterations": mr.iterations,
+            })
+        
+        df_comparison = pd.DataFrame(comparison_data)
+        st.dataframe(df_comparison, use_container_width=True, hide_index=True)
+        
+        # Detailed results for each model
+        st.markdown("---")
+        st.subheader("📋 Detailed Results")
+        
+        for mr in test_result.model_results:
+            with st.expander(
+                f"{'✅' if mr.success else '❌'} {mr.model_name} ({mr.model_provider}) - "
+                f"Score: {mr.overall_score:.1%}",
+                expanded=False
+            ):
+                # Overall scores with visual indicators
+                st.markdown("#### Scores")
+                col_score1, col_score2, col_score3 = st.columns(3)
+                
+                with col_score1:
+                    st.metric("Overall", f"{mr.overall_score:.1%}")
+                    st.progress(mr.overall_score)
+                
+                with col_score2:
+                    st.metric("Required Fields", f"{mr.required_fields_score:.1%}")
+                    st.progress(mr.required_fields_score)
+                
+                with col_score3:
+                    st.metric("Optional Fields", f"{mr.optional_fields_score:.1%}")
+                    st.progress(mr.optional_fields_score)
+                
+                # Execution info
+                st.markdown("#### Execution Details")
+                col_exec1, col_exec2 = st.columns(2)
+                
+                with col_exec1:
+                    st.text(f"Execution Time: {mr.execution_time:.2f}s")
+                    st.text(f"Iterations: {mr.iterations}")
+                    st.text(f"Success: {'✅ Yes' if mr.success else '❌ No'}")
+                
+                with col_exec2:
+                    if mr.error_message:
+                        st.error(f"Error: {mr.error_message}")
                     else:
-                        if model_config.get("api_identifier"):
-                            agent_kwargs["model_kwargs"] = {
-                                "model_name": model_config["api_identifier"]
+                        st.success("No errors")
+                
+                # Field-by-field results
+                st.markdown("#### Field Validation Results")
+                
+                # Required fields
+                st.markdown("**Required Fields**")
+                required_fields = [exp for exp in baseline.required_fields]
+                
+                for field_exp in required_fields:
+                    field_result = mr.field_results.get(field_exp.field_name)
+                    if field_result:
+                        display_field_match_details(field_result, field_exp)
+                
+                # Optional fields
+                if baseline.optional_fields:
+                    st.markdown("**Optional Fields**")
+                    optional_fields = [exp for exp in baseline.optional_fields]
+                    
+                    optional_results = []
+                    for field_exp in optional_fields:
+                        field_result = mr.field_results.get(field_exp.field_name)
+                        if field_result and field_result.actual_value is not None:
+                            actual_display = str(field_result.actual_value)
+                            if len(actual_display) > 50:
+                                actual_display = actual_display[:47] + "..."
+                            optional_results.append({
+                                "Field": field_exp.field_name,
+                                "Value": actual_display,
+                                "Confidence": f"{field_result.confidence:.1%}",
+                                "Match": "✅" if field_result.is_match else "❌"
+                            })
+                    
+                    if optional_results:
+                        df_optional = pd.DataFrame(optional_results)
+                        st.dataframe(df_optional, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No optional fields extracted")
+        
+        # Side-by-side field comparison
+        st.markdown("---")
+        st.subheader("🔍 Side-by-Side Field Comparison")
+        
+        # Create comparison table for required fields
+        st.markdown("### Required Fields Comparison")
+        
+        required_comparison_data = []
+        for field_exp in baseline.required_fields:
+            row = {
+                "Field": field_exp.field_name,
+                "Match Type": field_exp.match_type.value,
+                "Expected": str(field_exp.expected_value) if field_exp.expected_value else "N/A"
+            }
+            
+            for mr in test_result.model_results:
+                field_result = mr.field_results.get(field_exp.field_name)
+                if field_result:
+                    actual_value = str(field_result.actual_value) if field_result.actual_value is not None else "N/A"
+                    confidence = field_result.confidence
+                    status = "✅" if field_result.is_match else "❌"
+                    row[mr.model_name] = f"{status} {actual_value[:40]} ({confidence:.0%})"
+                else:
+                    row[mr.model_name] = "N/A"
+            
+            required_comparison_data.append(row)
+        
+        if required_comparison_data:
+            df_required_comp = pd.DataFrame(required_comparison_data)
+            st.dataframe(df_required_comp, use_container_width=True, hide_index=True)
+        
+        # Export functionality
+        st.markdown("---")
+        st.subheader("💾 Export Results")
+        
+        col_export1, col_export2 = st.columns(2)
+        
+        with col_export1:
+            # JSON export
+            json_data = {
+                "test_name": test_result.test_name,
+                "company": baseline.company_name,
+                "execution_time": test_result.execution_time,
+                "average_score": test_result.average_score,
+                "best_model": test_result.best_model,
+                "model_results": [
+                    {
+                        "model_name": mr.model_name,
+                        "provider": mr.model_provider,
+                        "overall_score": mr.overall_score,
+                        "required_fields_score": mr.required_fields_score,
+                        "optional_fields_score": mr.optional_fields_score,
+                        "success": mr.success,
+                        "execution_time": mr.execution_time,
+                        "iterations": mr.iterations,
+                        "field_results": {
+                            field_name: {
+                                "is_match": fr.is_match,
+                                "confidence": fr.confidence,
+                                "expected": str(fr.expected_value),
+                                "actual": str(fr.actual_value) if fr.actual_value is not None else None,
+                                "match_type": fr.match_type,
                             }
-                    
-                    # Initialize and run
-                    agent = ResearchAgent(**agent_kwargs)
-                    result: ResearchAgentResult = agent.research_company("BitMovin")
-                    
-                    # Validate results
-                    if result.company_info:
-                        validation = validate_required_fields(result.company_info)
-                        optional_validation = validate_optional_fields(result.company_info)
-                        
-                        # Save to database
-                        company_info_dict = None
-                        if result.company_info:
-                            company_info_dict = result.company_info.model_dump()
-                        
-                        test_record = save_test_execution(
-                            test_name="bitmovin_research",
-                            test_company="BitMovin",
-                            model_configuration_id=model_config.get("config_id"),
-                            model_name=model_name,
-                            model_provider=model_type,
-                            success=result.success and len(validation["errors"]) == 0,
-                            required_fields_valid=len(validation["errors"]) == 0,
-                            execution_time_seconds=result.execution_time_seconds,
-                            iterations=result.iterations,
-                            required_fields_errors=validation["errors"],
-                            required_fields_warnings=validation["warnings"],
-                            optional_fields_count=len(optional_validation["present_fields"]),
-                            optional_fields_coverage=optional_validation["coverage"],
-                            optional_fields_present=optional_validation["present_fields"],
-                            extracted_company_info=company_info_dict,
-                            raw_output=result.raw_output[:1000] if result.raw_output else None,
-                            session=session,
-                        )
-                        
-                        # Display results
-                        if len(validation["errors"]) == 0:
-                            st.success(f"✅ Passed - All required fields valid")
-                        else:
-                            st.error(f"❌ Failed - {len(validation['errors'])} validation errors")
-                            for error in validation["errors"]:
-                                st.error(f"  - {error}")
-                        
-                        if validation["warnings"]:
-                            for warning in validation["warnings"]:
-                                st.warning(f"⚠️ {warning}")
-                        
-                        # Field categorization display
-                        st.markdown("#### Field Validation")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            if validation["correct"]:
-                                st.success(f"✅ **Correct ({len(validation['correct'])})**")
-                                for field in validation["correct"]:
-                                    value = getattr(result.company_info, field, None)
-                                    if isinstance(value, str):
-                                        st.text(f"  • {field}: {value[:50]}")
-                                    else:
-                                        st.text(f"  • {field}: {value}")
-                            else:
-                                st.info("✅ **Correct: 0**")
-                        
-                        with col2:
-                            if validation["incorrect"]:
-                                st.warning(f"⚠️ **Incorrect ({len(validation['incorrect'])})**")
-                                for field, reason in validation["incorrect"]:
-                                    value = getattr(result.company_info, field, None)
-                                    st.text(f"  • {field}: {value}")
-                                    st.caption(f"    ({reason})")
-                            else:
-                                st.info("⚠️ **Incorrect: 0**")
-                        
-                        with col3:
-                            if validation["blank"]:
-                                st.error(f"❌ **Blank/Missing ({len(validation['blank'])})**")
-                                for field, reason in validation["blank"]:
-                                    st.text(f"  • {field}: {reason}")
-                            else:
-                                st.info("❌ **Blank/Missing: 0**")
-                        
-                        st.metric("Optional Fields", f"{len(optional_validation['present_fields'])}/10")
-                        st.metric("Execution Time", f"{result.execution_time_seconds:.2f}s")
-                        
-                        results.append({
-                            "model": model_name,
-                            "provider": model_type,
-                            "success": len(validation["errors"]) == 0,
-                            "optional_fields": len(optional_validation["present_fields"]),
-                            "time": result.execution_time_seconds,
-                        })
-                    else:
-                        st.error("❌ Failed - No company info returned")
-                        
-                        # Show detailed error information for debugging
-                        st.markdown("#### Error Details")
-                        col_err1, col_err2 = st.columns(2)
-                        with col_err1:
-                            st.text(f"Success: {result.success}")
-                            st.text(f"Iterations: {result.iterations}")
-                            st.text(f"Time: {result.execution_time_seconds:.2f}s")
-                        with col_err2:
-                            if result.raw_output:
-                                st.text("Raw Output (first 500 chars):")
-                                st.code(result.raw_output[:500])
-                            else:
-                                st.text("No raw output available")
-                        
-                        # Show intermediate steps if available for debugging
-                        if result.intermediate_steps:
-                            with st.expander("View Intermediate Steps (Debug)"):
-                                for step in result.intermediate_steps[-5:]:  # Show last 5 steps
-                                    step_type = step.get("type", "unknown")
-                                    st.text(f"Type: {step_type}, Content: {str(step.get('content', ''))[:200]}")
-                        
-                        save_test_execution(
-                            test_name="bitmovin_research",
-                            test_company="BitMovin",
-                            model_configuration_id=model_config.get("config_id"),
-                            model_name=model_name,
-                            model_provider=model_type,
-                            success=False,
-                            required_fields_valid=False,
-                            error_message=f"No company info returned. Success={result.success}, Raw output length={len(result.raw_output) if result.raw_output else 0}",
-                            raw_output=result.raw_output[:1000] if result.raw_output else None,
-                            session=session,
-                        )
-                        results.append({
-                            "model": model_name,
-                            "provider": model_type,
-                            "success": False,
-                            "optional_fields": 0,
-                            "time": result.execution_time_seconds,
-                        })
-                        
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                    
-                    save_test_execution(
-                        test_name="bitmovin_research",
-                        test_company="BitMovin",
-                        model_configuration_id=model_config.get("config_id"),
-                        model_name=model_name,
-                        model_provider=model_type,
-                        success=False,
-                        required_fields_valid=False,
-                        error_message=str(e),
-                        session=session,
-                    )
-                    
-                    results.append({
-                        "model": model_name,
-                        "provider": model_type,
-                        "success": False,
-                        "optional_fields": 0,
-                        "time": 0,
-                    })
-    
-    progress_bar.progress(1.0)
-    status_text.text("✅ All tests completed!")
-    
-    # Results summary
-    st.markdown("---")
-    st.subheader("📊 Test Summary")
-    
-    if results:
-        # Get detailed field information for each test
-        summary_data = []
-        for result_entry in results:
-            # Get the test execution from database for field details
-            test_exec = get_test_executions(
-                test_name="bitmovin_research",
-                test_company="BitMovin",
-                model_provider=result_entry["provider"],
-                limit=1,
-                session=session,
+                            for field_name, fr in mr.field_results.items()
+                        }
+                    }
+                    for mr in test_result.model_results
+                ]
+            }
+            
+            st.download_button(
+                label="📥 Download JSON",
+                data=json.dumps(json_data, indent=2),
+                file_name=f"test_results_{test_result.test_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
             )
-            
-            if test_exec and test_exec[0].extracted_company_info:
-                ci = test_exec[0].extracted_company_info
-                # Categorize fields
-                correct = []
-                incorrect = []
-                blank = []
-                
-                # Check each required field
-                required_fields = ["company_name", "industry", "company_size", "headquarters", "founded"]
-                for field in required_fields:
-                    value = ci.get(field)
-                    
-                    if value is None or (isinstance(value, str) and not value.strip()):
-                        blank.append(field)
-                    elif field == "company_name" and "bitmovin" in str(value).lower():
-                        correct.append(field)
-                    elif field == "company_name":
-                        incorrect.append(field)
-                    elif field == "industry" and ("video" in str(value).lower() or "streaming" in str(value).lower()):
-                        correct.append(field)
-                    elif field == "industry":
-                        incorrect.append(field)
-                    elif field == "company_size" and ("51" in str(value) or "200" in str(value)):
-                        correct.append(field)
-                    elif field == "company_size":
-                        incorrect.append(field)
-                    elif field == "headquarters" and ("san francisco" in str(value).lower() or "california" in str(value).lower()):
-                        correct.append(field)
-                    elif field == "headquarters":
-                        incorrect.append(field)
-                    elif field == "founded" and value == 2013:
-                        correct.append(field)
-                    elif field == "founded":
-                        incorrect.append(field)
-                
-                summary_data.append({
-                    "Model": result_entry["model"],
-                    "Provider": result_entry["provider"],
-                    "Success": "✅" if result_entry["success"] else "❌",
-                    "Correct Fields": f"{len(correct)}/5",
-                    "Incorrect Fields": len(incorrect),
-                    "Blank Fields": len(blank),
-                    "Optional Fields": f"{result_entry['optional_fields']}/10",
-                    "Time": f"{result_entry['time']:.2f}s",
-                })
-            else:
-                summary_data.append({
-                    "Model": result_entry["model"],
-                    "Provider": result_entry["provider"],
-                    "Success": "❌",
-                    "Correct Fields": "0/5",
-                    "Incorrect Fields": 0,
-                    "Blank Fields": 5,
-                    "Optional Fields": "0/10",
-                    "Time": f"{result_entry['time']:.2f}s",
-                })
         
-        if summary_data:
-            df = pd.DataFrame(summary_data)
-            st.dataframe(df, use_container_width=True)
+        with col_export2:
+            # CSV export (summary only)
+            csv_data = []
+            for mr in test_result.model_results:
+                csv_data.append({
+                    "Model": mr.model_name,
+                    "Provider": mr.model_provider,
+                    "Overall Score": mr.overall_score,
+                    "Required Fields Score": mr.required_fields_score,
+                    "Optional Fields Score": mr.optional_fields_score,
+                    "Success": mr.success,
+                    "Execution Time (s)": mr.execution_time,
+                    "Iterations": mr.iterations,
+                })
             
-            # Show detailed field breakdown for each model
-            for result_entry in results:
-                test_exec = get_test_executions(
-                    test_name="bitmovin_research",
-                    test_company="BitMovin",
-                    model_provider=result_entry["provider"],
-                    limit=1,
-                    session=session,
+            df_csv = pd.DataFrame(csv_data)
+            csv_string = df_csv.to_csv(index=False)
+            
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv_string,
+                file_name=f"test_results_{test_result.test_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        
+        # Save results to database (for historical tracking)
+        for mr in test_result.model_results:
+            try:
+                # Find the model config ID
+                model_config = next(
+                    (m for m in selected_models if m["name"] == mr.model_name),
+                    None
                 )
                 
-                if test_exec and test_exec[0].extracted_company_info:
-                    with st.expander(f"Field Details: {result_entry['model']}"):
-                        ci = test_exec[0].extracted_company_info
-                        
-                        # Required Fields Section
-                        st.markdown("### Required Fields (5)")
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.markdown("**✅ Correct Fields**")
-                            correct_required = []
-                            if ci.get("company_name") and "bitmovin" in str(ci.get("company_name", "")).lower():
-                                correct_required.append(("company_name", ci.get("company_name")))
-                            if ci.get("industry") and ("video" in str(ci.get("industry", "")).lower() or "streaming" in str(ci.get("industry", "")).lower()):
-                                correct_required.append(("industry", ci.get("industry")))
-                            if ci.get("company_size") and ("51" in str(ci.get("company_size", "")) or "200" in str(ci.get("company_size", ""))):
-                                correct_required.append(("company_size", ci.get("company_size")))
-                            if ci.get("headquarters") and ("san francisco" in str(ci.get("headquarters", "")).lower() or "california" in str(ci.get("headquarters", "")).lower()):
-                                correct_required.append(("headquarters", ci.get("headquarters")))
-                            if ci.get("founded") == 2013:
-                                correct_required.append(("founded", ci.get("founded")))
-                            
-                            if correct_required:
-                                st.text(f"({len(correct_required)}/5)")
-                                for field, value in correct_required:
-                                    st.text(f"• {field}: {value}")
-                            else:
-                                st.text("(0/5)")
-                                st.text("None")
-                        
-                        with col2:
-                            st.markdown("**⚠️ Incorrect Fields**")
-                            incorrect_required = []
-                            if ci.get("company_name") and "bitmovin" not in str(ci.get("company_name", "")).lower():
-                                incorrect_required.append(("company_name", ci.get("company_name"), "Expected 'Bitmovin'"))
-                            if ci.get("industry") and "video" not in str(ci.get("industry", "")).lower() and "streaming" not in str(ci.get("industry", "")).lower():
-                                incorrect_required.append(("industry", ci.get("industry"), "Expected video/streaming"))
-                            if ci.get("company_size") and "51" not in str(ci.get("company_size", "")) and "200" not in str(ci.get("company_size", "")):
-                                incorrect_required.append(("company_size", ci.get("company_size"), "Expected 51-200 range"))
-                            if ci.get("headquarters") and "san francisco" not in str(ci.get("headquarters", "")).lower() and "california" not in str(ci.get("headquarters", "")).lower():
-                                incorrect_required.append(("headquarters", ci.get("headquarters"), "Expected San Francisco, CA"))
-                            if ci.get("founded") and ci.get("founded") != 2013:
-                                incorrect_required.append(("founded", ci.get("founded"), "Expected 2013"))
-                            
-                            if incorrect_required:
-                                st.text(f"({len(incorrect_required)})")
-                                for field, value, expected in incorrect_required:
-                                    st.text(f"• {field}: {value}")
-                                    st.caption(f"  ({expected})")
-                            else:
-                                st.text("(0)")
-                                st.text("None")
-                        
-                        with col3:
-                            st.markdown("**❌ Blank/Missing Fields**")
-                            blank_required = []
-                            if not ci.get("company_name") or not str(ci.get("company_name", "")).strip():
-                                blank_required.append("company_name")
-                            if not ci.get("industry") or not str(ci.get("industry", "")).strip():
-                                blank_required.append("industry")
-                            if not ci.get("company_size") or not str(ci.get("company_size", "")).strip():
-                                blank_required.append("company_size")
-                            if not ci.get("headquarters") or not str(ci.get("headquarters", "")).strip():
-                                blank_required.append("headquarters")
-                            if ci.get("founded") is None:
-                                blank_required.append("founded")
-                            
-                            if blank_required:
-                                st.text(f"({len(blank_required)})")
-                                for field in blank_required:
-                                    st.text(f"• {field}")
-                            else:
-                                st.text("(0)")
-                                st.text("None")
-                        
-                        # Optional Fields Section
-                        st.markdown("---")
-                        st.markdown("### Optional Fields (10)")
-                        col4, col5, col6 = st.columns(3)
-                        
-                        # Get list of optional fields that were actually present in the test
-                        optional_fields_present = test_exec[0].optional_fields_present or []
-                        
-                        with col4:
-                            st.markdown("**✅ Present Fields**")
-                            if optional_fields_present:
-                                st.text(f"({len(optional_fields_present)}/10)")
-                                for field_name in optional_fields_present:
-                                    value = ci.get(field_name)
-                                    if value is not None:
-                                        if isinstance(value, str):
-                                            display_value = value[:50] + "..." if len(value) > 50 else value
-                                        elif isinstance(value, list):
-                                            display_value = ", ".join(str(v) for v in value[:3])
-                                            if len(value) > 3:
-                                                display_value += f" ... (+{len(value)-3} more)"
-                                        else:
-                                            display_value = str(value)
-                                        st.text(f"• {field_name}: {display_value}")
-                            else:
-                                st.text("(0/10)")
-                                st.text("None")
-                        
-                        with col5:
-                            st.markdown("**⚠️ Incorrect Fields**")
-                            # For optional fields, we consider them incorrect if they exist but have invalid values
-                            # Since optional fields don't have strict validation, this would be empty
-                            # unless we want to validate against specific expected values
-                            st.text("(0)")
-                            st.text("N/A - Optional fields")
-                            st.caption("Optional fields are not validated")
-                        
-                        with col6:
-                            st.markdown("**❌ Blank/Missing Fields**")
-                            # Get all optional field names
-                            all_optional_fields = [
-                                "growth_stage", "industry_vertical", "sub_industry_vertical",
-                                "financial_health", "business_and_technology_adoption",
-                                "primary_workload_philosophy", "buyer_journey",
-                                "budget_maturity", "cloud_spend_capacity", "procurement_process",
-                            ]
-                            missing_optional = [field for field in all_optional_fields if field not in optional_fields_present]
-                            
-                            if missing_optional:
-                                st.text(f"({len(missing_optional)})")
-                                for field in missing_optional:
-                                    st.text(f"• {field}")
-                            else:
-                                st.text("(0)")
-                                st.text("None")
-        
-        success_count = sum(1 for r in results if r["success"])
-        st.metric("Success Rate", f"{success_count}/{len(results)}")
-        
-        # Comparison Table: Required Fields + Additional Fields
-        st.markdown("---")
-        st.subheader("📊 Field Comparison Table")
-        st.markdown("Side-by-side comparison of all fields across tested models")
-        
-        # Get all test results with company info
-        comparison_data = {}
-        
-        # Define all fields
-        REQUIRED_FIELDS_LIST = ["company_name", "industry", "company_size", "headquarters", "founded"]
-        ADDITIONAL_FIELDS_LIST = [
-            "growth_stage", "industry_vertical", "sub_industry_vertical",
-            "financial_health", "business_and_technology_adoption",
-            "primary_workload_philosophy", "buyer_journey",
-            "budget_maturity", "cloud_spend_capacity", "procurement_process",
-        ]
-        
-        for result_entry in results:
-            test_exec = get_test_executions(
-                test_name="bitmovin_research",
-                test_company="BitMovin",
-                model_provider=result_entry["provider"],
-                limit=1,
-                session=session,
-            )
-            
-            if test_exec and test_exec[0].extracted_company_info:
-                ci = test_exec[0].extracted_company_info
-                model_name = result_entry["model"]
-                comparison_data[model_name] = ci
-        
-        if len(comparison_data) >= 1:
-            # Sort model names for consistent column order
-            sorted_model_names = sorted(comparison_data.keys())
-            
-            # Create comparison table for Required Fields
-            st.markdown("### Required Fields (5)")
-            required_table_data = []
-            for field in REQUIRED_FIELDS_LIST:
-                row = {"Field": field}
-                for model_name in sorted_model_names:
-                    value = comparison_data[model_name].get(field)
-                    if value is None:
-                        row[model_name] = "N/A"
-                    elif isinstance(value, (int, float, bool)):
-                        row[model_name] = str(value)
-                    elif isinstance(value, str):
-                        # Truncate long strings for display
-                        if len(value) > 60:
-                            row[model_name] = value[:57] + "..."
-                        else:
-                            row[model_name] = value
-                    elif isinstance(value, list):
-                        row[model_name] = ", ".join(str(v) for v in value[:3])
-                        if len(value) > 3:
-                            row[model_name] += f" (+{len(value)-3} more)"
-                    else:
-                        row[model_name] = str(value)
-                
-                required_table_data.append(row)
-            
-            required_df = pd.DataFrame(required_table_data)
-            st.dataframe(required_df, use_container_width=True, hide_index=True)
-            
-            # Create comparison table for Additional Fields
-            st.markdown("### Additional Fields (10)")
-            additional_table_data = []
-            for field in ADDITIONAL_FIELDS_LIST:
-                row = {"Field": field}
-                for model_name in sorted_model_names:
-                    value = comparison_data[model_name].get(field)
-                    if value is None:
-                        row[model_name] = "N/A"
-                    elif isinstance(value, (int, float, bool)):
-                        row[model_name] = str(value)
-                    elif isinstance(value, str):
-                        # Truncate long strings for display
-                        if len(value) > 60:
-                            row[model_name] = value[:57] + "..."
-                        else:
-                            row[model_name] = value
-                    elif isinstance(value, list):
-                        row[model_name] = ", ".join(str(v) for v in value[:3])
-                        if len(value) > 3:
-                            row[model_name] += f" (+{len(value)-3} more)"
-                    else:
-                        row[model_name] = str(value)
-                
-                additional_table_data.append(row)
-            
-            additional_df = pd.DataFrame(additional_table_data)
-            st.dataframe(additional_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Run tests to see comparison table")
+                if model_config and mr.company_info:
+                    company_info_dict = mr.company_info.model_dump()
+                    
+                    # Count successful required fields
+                    required_passed = sum(
+                        1 for field_exp in baseline.required_fields
+                        if (field_result := mr.field_results.get(field_exp.field_name))
+                        and field_result.is_match
+                    )
+                    
+                    save_test_execution(
+                        test_name="bitmovin_research",  # Match database schema
+                        test_company=baseline.company_name,
+                        model_configuration_id=model_config.get("config_id"),
+                        model_name=mr.model_name,
+                        model_provider=mr.model_provider,
+                        success=mr.success,
+                        required_fields_valid=required_passed == len(baseline.required_fields),
+                        execution_time_seconds=mr.execution_time,
+                        iterations=mr.iterations,
+                        extracted_company_info=company_info_dict,
+                        raw_output=mr.raw_output[:1000] if mr.raw_output else None,
+                        error_message=mr.error_message,
+                        session=session,
+                    )
+            except Exception as e:
+                st.warning(f"Failed to save results for {mr.model_name}: {e}")
 
 # Show recent test results
 st.markdown("---")
@@ -808,34 +569,15 @@ recent_tests = get_test_executions(
 if recent_tests:
     test_data = []
     for test in recent_tests:
-        # Calculate required fields count from extracted company info
-        required_fields_count = 0
-        if test.extracted_company_info:
-            ci = test.extracted_company_info
-            
-            # Check each required field
-            if ci.get("company_name") and "bitmovin" in str(ci.get("company_name", "")).lower():
-                required_fields_count += 1
-            if ci.get("industry") and ("video" in str(ci.get("industry", "")).lower() or "streaming" in str(ci.get("industry", "")).lower()):
-                required_fields_count += 1
-            if ci.get("company_size") and ("51" in str(ci.get("company_size", "")) or "200" in str(ci.get("company_size", ""))):
-                required_fields_count += 1
-            if ci.get("headquarters") and ("san francisco" in str(ci.get("headquarters", "")).lower() or "california" in str(ci.get("headquarters", "")).lower()):
-                required_fields_count += 1
-            if ci.get("founded") == 2013:
-                required_fields_count += 1
-        
         test_data.append({
             "Model": test.model_name,
             "Provider": test.model_provider,
             "Success": "✅" if test.success and test.required_fields_valid else "❌",
-            "Required Fields": f"{required_fields_count}/5",
-            "Optional Fields": f"{test.optional_fields_count or 0}/10",
             "Time": f"{test.execution_time_seconds:.2f}s" if test.execution_time_seconds else "N/A",
-            "Date": test.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "Iterations": test.iterations or 0,
+            "Date": test.created_at.strftime("%Y-%m-%d %H:%M:%S") if test.created_at else "N/A",
         })
     
-    st.dataframe(pd.DataFrame(test_data), use_container_width=True)
+    st.dataframe(pd.DataFrame(test_data), use_container_width=True, hide_index=True)
 else:
     st.info("No test results yet. Run tests above to see results.")
-
