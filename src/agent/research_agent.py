@@ -380,12 +380,11 @@ class ResearchAgent:
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
         ]
 
-        # Enable structured output for all model types
-        # Note: Local models may struggle with complex schema requirements
-        response_format = CompanyInfo
-        
-        # If you want to disable for local models, uncomment this line:
-        # response_format = CompanyInfo if self.model_type != "local" else None
+        # Structured output only works properly with remote models (Gemini, OpenAI, Anthropic)
+        # Local models (ChatLlamaCpp) don't support response_format correctly - it gets
+        # treated as a tool which causes "tool_choice='any'" errors. 
+        # Solution: Keep enhanced prompts for local models, use structured output for remote.
+        response_format = CompanyInfo if self.model_type != "local" else None
 
         return create_agent(
             model=chat_model,

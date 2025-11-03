@@ -81,23 +81,19 @@ Local models (Llama) have structured output disabled because:
 
 ## Solutions
 
-### ✅ Solution 1: Enable Structured Output for Llama (Already Applied)
+### ❌ Solution 1: Enable Structured Output for Llama (Not Compatible)
 
-**Status**: Code has been updated to enable structured output for all models.
+**Status**: Attempted but reverted due to technical limitations.
 
-**Change Made**:
-```python
-# Enable structured output for all model types
-response_format = CompanyInfo
-
-# Old code (disabled):
-# response_format = CompanyInfo if self.model_type != "local" else None
+**Issue Discovered**:
+```
+Tool choice tool_choice='any' was specified, but the only provided tools were 
+['web_search_tool', 'CompanyInfo'].
 ```
 
-**Expected Result**:
-- Llama will now make multiple iterations to gather complete data
-- May see errors if Llama produces invalid JSON
-- Performance may be slower but more thorough
+**Root Cause**: `ChatLlamaCpp` doesn't support LangChain's `response_format` parameter correctly. When `response_format=CompanyInfo` is set for local models, LangChain incorrectly treats it as a tool instead of a schema, causing tool selection conflicts.
+
+**Conclusion**: Structured output enforcement via `response_format` only works for remote models (Gemini, OpenAI, Anthropic). Local models must rely on **Solution 2** (enhanced prompts) instead.
 
 **Testing**:
 ```bash
@@ -256,11 +252,11 @@ def _check_missing_critical_fields(self, company_info: Optional[CompanyInfo]) ->
 
 ### For Production Use
 
-**Best Approach**: Use **Solution 1** (structured output) + **Solution 2** (enhanced prompts)
+**Best Approach**: Use **Solution 2** (enhanced prompts) for local models
 
-1. ✅ **Applied**: Enabled structured output for Llama
-2. ✅ **Applied**: Enhanced system prompt to encourage thorough research
-3. 🧪 **Next**: Test with diagnostic mode and verify 3-4 iterations
+1. ❌ **Solution 1 Not Viable**: Structured output causes tool choice errors with ChatLlamaCpp
+2. ✅ **Solution 2 Applied**: Enhanced system prompt to encourage thorough research
+3. 🧪 **Testing**: Verify enhanced prompts improve iteration count for Llama
 
 ### For Development/Testing
 
@@ -321,10 +317,10 @@ python scripts/test_llama_diagnostics.py BitMovin --max-iterations 10
 
 ---
 
-**Status**: ✅ **IMPLEMENTED**  
+**Status**: ✅ **SOLUTION 2 IMPLEMENTED** (Solution 1 Not Compatible)  
 **Last Updated**: 2025-11-03  
 **Changes Applied**:
-- Solution 1: Enabled structured output for all models (including Llama)
-- Solution 2: Enhanced system prompt with explicit iteration requirements
-**Next Steps**: Test Llama with both fixes and monitor iteration counts
+- ❌ Solution 1: Structured output not compatible with ChatLlamaCpp (causes tool_choice errors)
+- ✅ Solution 2: Enhanced system prompt with explicit iteration requirements
+**Next Steps**: Test Llama with enhanced prompts and monitor if iteration count improves
 
