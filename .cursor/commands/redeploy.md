@@ -1,6 +1,6 @@
 # Redeploy Streamlit App
 
-Reference docs: `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`, `docs/SSH_ACCESS_GUIDE.md`, `docs/GITHUB_AUTH.md`, `docs/STREAMLIT_WORKFLOW.md`.
+Reference docs: `docs/infrastructure/INFRASTRUCTURE_QUICK_REFERENCE.md`, `docs/infrastructure/SSH_ACCESS_GUIDE.md`, `docs/infrastructure/GITHUB_AUTH.md`, `docs/implemented/STREAMLIT_WORKFLOW.md`.
 
 ## 0. Prerequisites (run locally)
 
@@ -15,7 +15,7 @@ Reference docs: `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`, `docs/SSH_ACCESS_GUIDE
   ls -l ~/.ssh/id_ed25519_langchain
   ssh-add -l || ssh-add ~/.ssh/id_ed25519_langchain
   ```
-- If SSH still fails, use the Linode Weblish/LISH console (see `docs/SSH_ACCESS_GUIDE.md`).
+- If SSH still fails, use the Linode Weblish/LISH console (see `docs/infrastructure/SSH_ACCESS_GUIDE.md`).
 
 ## 1. Commit and push local changes
 
@@ -56,7 +56,7 @@ If SSH is unavailable, launch the Linode console and run the same git commands t
 ssh -n linode-langchain-user "cd ~/langchain-demo && (nohup bash scripts/start_streamlit.sh > /tmp/streamlit.log 2>&1 &); exit"
 ```
 
-The `-n` flag prevents SSH from reading from stdin (which prevents hanging). The command runs the Streamlit restart in a subshell with `nohup ... &` and immediately exits the SSH session. The script stops any existing process on port `8501`, reactivates the virtualenv, and launches the dashboard—mirroring the manual steps in `docs/SSH_ACCESS_GUIDE.md` and `docs/INFRASTRUCTURE_QUICK_REFERENCE.md`.
+The `-n` flag prevents SSH from reading from stdin (which prevents hanging). The command runs the Streamlit restart in a subshell with `nohup ... &` and immediately exits the SSH session. The script stops any existing process on port `8501`, reactivates the virtualenv, and launches the dashboard—mirroring the manual steps in `docs/infrastructure/SSH_ACCESS_GUIDE.md` and `docs/infrastructure/INFRASTRUCTURE_QUICK_REFERENCE.md`.
 
 **Alternative if using explicit key:**
 ```bash
@@ -124,7 +124,7 @@ ssh linode-langchain-user "cd ~/langchain-demo && source venv/bin/activate && py
 ssh linode-langchain-user "cd ~/langchain-demo && source venv/bin/activate && python -c 'from src.models.model_factory import get_chat_model; from src.models.structured_output import select_structured_output_strategy; from src.tools.models import CompanyInfo; model = get_chat_model(model_type=\"local\"); strategy = select_structured_output_strategy(model=model, model_type=\"local\", schema=CompanyInfo); print(f\"✅ Strategy selection working: {strategy}\")'"
 ```
 
-**Note**: For detailed verification guide, see `docs/DEPLOYMENT_VERIFICATION.md`.
+**Note**: For detailed verification guide, see `docs/reference/DEPLOYMENT_VERIFICATION.md`.
 
 ## 5. Monitor logs (optional)
 

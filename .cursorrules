@@ -104,9 +104,28 @@ This is an educational LangChain project demonstrating how to build a research a
 - `utils/` - Shared utilities (models, database, monitoring)
 
 ### Documentation (`docs/`)
+- **Organized by category** - See `docs/README.md` for full structure
+- **principles/** - Core architectural principles and system design
+- **implemented/** - Completed features and how they work
+- **plans/** - Future work, proposals, and roadmaps
+- **infrastructure/** - Setup, access, deployment guides
+- **troubleshooting/** - Known issues, solutions, and debugging
+- **reference/** - How-to guides and technical references
 - `blog/` - Blog post series (written as modules are built)
-- Each blog post corresponds to module progression
-- **Keep docs/ clean** - Only official, current documentation goes here
+
+**When creating new docs**, categorize them according to `docs/DOCUMENTATION_GUIDELINES.md`:
+- ✅ **Implemented feature** → `docs/implemented/` (completed, working)
+- 📋 **Plan/proposal** → `docs/plans/` (future work, not yet done)
+- 🐛 **Problem/solution** → `docs/troubleshooting/` (issues, debugging)
+- 🔧 **Setup/access** → `docs/infrastructure/` (server, SSH, deployment)
+- 📚 **Core principle** → `docs/principles/` (architectural decisions)
+- 📖 **Reference/guide** → `docs/reference/` (how-to, technical refs)
+
+**Critical Rules**:
+- ❌ **NEVER** create `.md` files in `docs/` root directory
+- ✅ **ALWAYS** use appropriate subdirectory based on category
+- ✅ **CHECK** `docs/DOCUMENTATION_GUIDELINES.md` if unsure where to place a doc
+- ✅ **UPDATE** cross-references when moving docs between categories
 
 ### Temporary Files (`temp/`)
 - **CRITICAL**: All temporary notes, proposals, and scratch work goes in `temp/`
@@ -146,6 +165,8 @@ This is an educational LangChain project demonstrating how to build a research a
 3. **Working Examples**: All code should be functional and testable
 4. **Clear Documentation**: Explain concepts, not just syntax
 5. **Best Practices**: Show how to do things right, not just how they work
+
+**📋 Architectural Principles**: For detailed architectural principles and conventions (e.g., database as source of truth, model configuration patterns), see `docs/principles/ARCHITECTURAL_PRINCIPLES.md`. All code should follow these principles.
 
 ## Common Patterns
 

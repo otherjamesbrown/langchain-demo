@@ -407,6 +407,28 @@ if st.button("🚀 Run Tests", type="primary"):
                         })
                     else:
                         st.error("❌ Failed - No company info returned")
+                        
+                        # Show detailed error information for debugging
+                        st.markdown("#### Error Details")
+                        col_err1, col_err2 = st.columns(2)
+                        with col_err1:
+                            st.text(f"Success: {result.success}")
+                            st.text(f"Iterations: {result.iterations}")
+                            st.text(f"Time: {result.execution_time_seconds:.2f}s")
+                        with col_err2:
+                            if result.raw_output:
+                                st.text("Raw Output (first 500 chars):")
+                                st.code(result.raw_output[:500])
+                            else:
+                                st.text("No raw output available")
+                        
+                        # Show intermediate steps if available for debugging
+                        if result.intermediate_steps:
+                            with st.expander("View Intermediate Steps (Debug)"):
+                                for step in result.intermediate_steps[-5:]:  # Show last 5 steps
+                                    step_type = step.get("type", "unknown")
+                                    st.text(f"Type: {step_type}, Content: {str(step.get('content', ''))[:200]}")
+                        
                         save_test_execution(
                             test_name="bitmovin_research",
                             test_company="BitMovin",
@@ -415,7 +437,7 @@ if st.button("🚀 Run Tests", type="primary"):
                             model_provider=model_type,
                             success=False,
                             required_fields_valid=False,
-                            error_message="No company info returned",
+                            error_message=f"No company info returned. Success={result.success}, Raw output length={len(result.raw_output) if result.raw_output else 0}",
                             raw_output=result.raw_output[:1000] if result.raw_output else None,
                             session=session,
                         )

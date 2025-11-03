@@ -130,8 +130,8 @@ When testing, verify:
 
 ## Related Documentation
 
-- `docs/STRUCTURED_OUTPUT_STRATEGIES.md` - Detailed explanation of ProviderStrategy vs ToolStrategy
-- `docs/REACT_ITERATION_DIFFERENCE.md` - Why structured output affects agent behavior
+- `docs/reference/STRUCTURED_OUTPUT_STRATEGIES.md` - Detailed explanation of ProviderStrategy vs ToolStrategy
+- `docs/troubleshooting/REACT_ITERATION_DIFFERENCE.md` - Why structured output affects agent behavior
 
 ---
 

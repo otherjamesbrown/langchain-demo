@@ -4,6 +4,8 @@
 
 This document describes the architecture of the LangChain Research Agent, which gathers structured company information using web search and LLM-based extraction.
 
+**📋 Important**: For architectural principles and conventions that guide development decisions, see **[ARCHITECTURAL_PRINCIPLES.md](./ARCHITECTURAL_PRINCIPLES.md)**. This includes principles like "database as source of truth" and other key conventions.
+
 ## System Architecture
 
 ```
@@ -444,7 +446,7 @@ python src/agent/research_agent.py BitMovin
 
 ### Server Deployment
 
-See `docs/SERVER_SETUP.md` for detailed instructions.
+See `docs/infrastructure/SERVER_SETUP.md` for detailed instructions.
 
 ## Future Enhancements
 

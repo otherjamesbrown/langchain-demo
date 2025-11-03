@@ -432,7 +432,7 @@ ssh linode-langchain-user "cd ~/langchain-demo && bash scripts/health_check.sh"
 
 **Last Updated**: 2025-01-XX  
 **Related Docs**: 
-- `docs/STREAMLIT_WORKFLOW.md` - Streamlit deployment
-- `docs/LLM_LOGGING_GUIDE.md` - LLM logging details
-- `docs/SSH_ACCESS_GUIDE.md` - SSH access methods
+- `docs/implemented/STREAMLIT_WORKFLOW.md` - Streamlit deployment
+- `docs/implemented/LLM_LOGGING_GUIDE.md` - LLM logging details
+- `docs/infrastructure/SSH_ACCESS_GUIDE.md` - SSH access methods
 

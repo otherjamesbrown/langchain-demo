@@ -328,7 +328,7 @@ python scripts/test_llama_diagnostics.py BitMovin --max-iterations 10
 - `src/tools/models.py` - CompanyInfo schema definition
 - `prompts/research-agent-prompt.md` - Research instructions
 - `src/models/model_factory.py` - Model initialization
-- `docs/TRUNCATION_ISSUE_RESOLVED.md` - Related GPU/performance issue
+- `docs/troubleshooting/TRUNCATION_ISSUE_RESOLVED.md` - Related GPU/performance issue
 
 ---
 
