@@ -82,12 +82,19 @@ for model in all_models:
     else:
         # Remote models (openai, anthropic, gemini) must have:
         # 1. An api_identifier configured
-        # 2. A corresponding API key in the database
+        # 2. A corresponding API key in the database (not a placeholder)
         if model.api_identifier:
             api_key = get_api_key(model.provider, session=session)
-            if api_key:
+            # Check if API key exists and is not a placeholder
+            if api_key and api_key not in [
+                "",
+                f"your_{model.provider}_api_key_here",
+                f"sk-your_{model.provider}_key_here",
+                f"your_anthropic_key_here",
+                "sk-ant-your_anthropic_key_here",
+            ] and not api_key.startswith("sk-ant-your_") and not "placeholder" in api_key.lower():
                 valid_models.append(model)
-        # If no api_identifier or no API key, skip this model
+        # If no api_identifier or no valid API key, skip this model
 
 configured_models = valid_models
 
