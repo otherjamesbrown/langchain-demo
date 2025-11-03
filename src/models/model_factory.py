@@ -362,12 +362,19 @@ def _create_local_chat_model(
 
     # Pass max_tokens if provided (crucial for preventing output truncation)
     # For local models, this typically comes from model_kwargs set by the UI
+    # ChatLlamaCpp accepts max_tokens, and we also set n_predict for compatibility
+    # with underlying llama-cpp-python library
     if "max_tokens" in kwargs:
-        llama_params["max_tokens"] = kwargs["max_tokens"]
+        max_tokens_value = kwargs["max_tokens"]
+        llama_params["max_tokens"] = max_tokens_value
+        # Also set n_predict as some versions of ChatLlamaCpp may prefer this
+        llama_params["n_predict"] = max_tokens_value
     elif suggested_ctx:
         # Default to half the context window if not specified
         # This matches the default used in database operations
-        llama_params["max_tokens"] = max(suggested_ctx // 2, 512)
+        max_tokens_default = max(suggested_ctx // 2, 512)
+        llama_params["max_tokens"] = max_tokens_default
+        llama_params["n_predict"] = max_tokens_default
 
     if chat_format and "chat_format" not in kwargs:
         llama_params["chat_format"] = chat_format

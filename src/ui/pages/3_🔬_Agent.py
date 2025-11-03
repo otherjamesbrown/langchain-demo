@@ -147,7 +147,17 @@ if metadata.get("description"):
 elif selected_model.provider == "local" and not selected_model.model_path:
     st.sidebar.info("Configure the model path from the Home page to use this entry.")
 
-max_output_tokens = int(metadata.get("max_output_tokens", 1024))
+# Calculate max_output_tokens: use metadata value, or calculate from context_window, or sensible default
+# For local models with 8K context, should be ~4096, not 1024
+context_window = metadata.get("context_window")
+if "max_output_tokens" in metadata:
+    max_output_tokens = int(metadata["max_output_tokens"])
+elif context_window:
+    # Match database calculation: max(context_window // 2, 512)
+    max_output_tokens = max(int(context_window) // 2, 512)
+else:
+    # Fallback for remote models or unknown context
+    max_output_tokens = 1024
 if selected_model.provider == "local":
     model_kwargs["max_tokens"] = max_output_tokens
 else:
