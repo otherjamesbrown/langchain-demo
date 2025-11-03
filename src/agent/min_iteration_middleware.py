@@ -46,7 +46,7 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         self._enabled = False
 
     def before_agent(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
-        """Track iteration count before each agent call.
+        """Reset iteration counter at start of agent execution.
         
         Args:
             state: Current agent state
@@ -55,16 +55,16 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         Returns:
             None - no state modifications needed
         """
-        # Increment iteration counter
-        self._iteration_count += 1
+        # Reset counter for new research task
+        self._iteration_count = 0
         return None
-
-    def after_agent(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
-        """Check if agent is trying to finish prematurely.
+    
+    def after_model(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
+        """Check if model is trying to finish prematurely.
         
-        If the agent generates a response without tool calls (indicating it wants
-        to finish) and we're below the minimum iteration threshold, remove the
-        final answer and inject a continuation message.
+        This hook is called after each model generation. If the model generates
+        a response without tool calls (indicating it wants to finish) and we're
+        below the minimum iteration threshold, we force it to make another tool call.
         
         Args:
             state: Current agent state
@@ -73,6 +73,9 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         Returns:
             Modified state if forcing continuation, None otherwise
         """
+        # Increment iteration counter
+        self._iteration_count += 1
+        
         # Only enforce if we're below minimum iterations
         if self._iteration_count >= self.min_iterations:
             return None
@@ -82,7 +85,7 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         if not messages:
             return None
 
-        # Check if last message is from AI (agent's response)
+        # Check if last message is from AI (model's response)
         last_message = messages[-1]
         if not isinstance(last_message, AIMessage):
             return None
@@ -95,20 +98,24 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         )
 
         if not has_tool_calls:
-            # Agent is trying to finish - force continuation
+            # Model is trying to finish - force continuation by requesting more research
             remaining = self.min_iterations - self._iteration_count
             
-            # Create a continuation message encouraging more research
-            continuation_msg = AIMessage(
+            # Create a tool call to web_search_tool to force more research
+            # This tricks the agent into thinking it needs to do more work
+            from langchain_core.messages import HumanMessage
+            
+            continuation_request = HumanMessage(
                 content=(
-                    f"I need to gather more comprehensive information. "
-                    f"Continuing research (minimum {remaining} more iteration(s) required)."
-                ),
-                tool_calls=[],
+                    f"Your research is incomplete. You have performed {self._iteration_count} "
+                    f"iteration(s) but need at least {self.min_iterations}. "
+                    f"Please make {remaining} more web search(es) to gather comprehensive "
+                    f"information about missing data points (competitors, revenue, funding, etc.)."
+                )
             )
             
-            # Replace the final answer with continuation message
-            modified_messages = messages[:-1] + [continuation_msg]
+            # Replace the final answer with continuation request
+            modified_messages = messages[:-1] + [continuation_request]
             
             return {
                 "messages": modified_messages,
