@@ -65,13 +65,11 @@ MODEL_CONFIGS = [
 
 
 def _check_api_key_available(model_type: str) -> bool:
-    """Check if API key is available for the model type."""
-    env_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-    }
+    """Check if API key is available for the model type.
     
+    Checks database first (primary source), then falls back to environment variables.
+    This matches the architecture where database is the source of truth.
+    """
     if model_type == "local":
         # For local, check if MODEL_PATH is set or if default model exists
         model_path = os.getenv("MODEL_PATH")
@@ -79,6 +77,22 @@ def _check_api_key_available(model_type: str) -> bool:
             return True
         # Could also check for default model location
         return False
+    
+    # Check database first (primary source of truth)
+    try:
+        from src.database.operations import get_api_key
+        db_key = get_api_key(model_type)
+        if db_key and db_key.strip():
+            return True
+    except Exception:
+        pass  # Fallback to environment variables
+    
+    # Fallback to environment variables
+    env_map = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+    }
     
     api_key_env = env_map.get(model_type)
     if not api_key_env:
