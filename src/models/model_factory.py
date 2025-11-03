@@ -360,16 +360,20 @@ def _create_local_chat_model(
         "n_batch": kwargs.get("n_batch", 512),
     }
 
-    # Set n_predict directly in constructor - this is what llama-cpp-python uses
-    # n_predict controls the maximum number of tokens to generate (prevents truncation)
+    # Set max generation tokens - ChatLlamaCpp may accept either max_tokens or n_predict
+    # We pass both to ensure compatibility across different versions
     if "max_tokens" in kwargs:
-        # Pass n_predict directly to ChatLlamaCpp constructor
-        # This is the parameter name that llama-cpp-python actually uses
-        llama_params["n_predict"] = kwargs["max_tokens"]
+        max_gen_tokens = kwargs["max_tokens"]
+        # Try both parameter names for maximum compatibility
+        # Some versions of ChatLlamaCpp accept max_tokens, others use n_predict
+        llama_params["max_tokens"] = max_gen_tokens
+        llama_params["n_predict"] = max_gen_tokens
     elif suggested_ctx:
         # Default to half the context window if not specified
         # This matches the default used in database operations
-        llama_params["n_predict"] = max(suggested_ctx // 2, 512)
+        max_gen_tokens = max(suggested_ctx // 2, 512)
+        llama_params["max_tokens"] = max_gen_tokens
+        llama_params["n_predict"] = max_gen_tokens
 
     if chat_format and "chat_format" not in kwargs:
         llama_params["chat_format"] = chat_format
