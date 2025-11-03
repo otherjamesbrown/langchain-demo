@@ -554,6 +554,13 @@ if st.button("🚀 Run Tests", type="primary"):
                     )
             except Exception as e:
                 st.warning(f"Failed to save results for {mr.model_name}: {e}")
+    
+    except Exception as e:
+        progress_bar.progress(1.0)
+        status_text.text("❌ Test execution failed")
+        st.error(f"Error running tests: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # Show recent test results
 st.markdown("---")
