@@ -380,7 +380,12 @@ class ResearchAgent:
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
         ]
 
-        response_format = CompanyInfo if self.model_type != "local" else None
+        # Enable structured output for all model types
+        # Note: Local models may struggle with complex schema requirements
+        response_format = CompanyInfo
+        
+        # If you want to disable for local models, uncomment this line:
+        # response_format = CompanyInfo if self.model_type != "local" else None
 
         return create_agent(
             model=chat_model,
