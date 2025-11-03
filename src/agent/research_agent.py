@@ -225,6 +225,9 @@ class ResearchAgent:
         max_iterations: int = 10,
         instructions_path: Optional[str] = None,
         profiling_guide_path: Optional[str] = None,
+        prompt_version_id: Optional[int] = None,  # NEW: Use specific prompt version
+        prompt_name: Optional[str] = None,  # NEW: Use active version of named prompt
+        prompt_version: Optional[str] = None,  # NEW: Use specific version string
         local_model: Optional[str] = None,
         model_path: Optional[str] = None,
         model_kwargs: Optional[Dict[str, Any]] = None,
@@ -246,10 +249,46 @@ class ResearchAgent:
         if self.enable_diagnostics and self.model_type == "local":
             self.model_kwargs["enable_diagnostics"] = True
 
-        self._instructions = self._load_instructions()
-        self._profiling_guide = self._load_profiling_guide()
+        # NEW: Load prompts from database if prompt_version_id or prompt_name provided
+        # Educational: This demonstrates how to version prompts for A/B testing and
+        # tracking prompt engineering experiments. The agent can load prompts from
+        # the database instead of files, enabling systematic prompt versioning.
+        if prompt_version_id:
+            from src.prompts.prompt_manager import PromptManager
+            prompt_version = PromptManager.get_version_by_id(prompt_version_id)
+            if prompt_version:
+                self._instructions = prompt_version.instructions_content
+                self._profiling_guide = prompt_version.classification_reference_content or ""
+                self._prompt_version_id = prompt_version_id
+                self._prompt_name = prompt_version.prompt_name
+                self._prompt_version = prompt_version.version
+            else:
+                raise ValueError(f"Prompt version ID {prompt_version_id} not found")
+        elif prompt_name:
+            from src.prompts.prompt_manager import PromptManager
+            if prompt_version:
+                prompt_version_obj = PromptManager.get_version(prompt_name, prompt_version)
+            else:
+                prompt_version_obj = PromptManager.get_active_version(prompt_name)
+            
+            if prompt_version_obj:
+                self._instructions = prompt_version_obj.instructions_content
+                self._profiling_guide = prompt_version_obj.classification_reference_content or ""
+                self._prompt_version_id = prompt_version_obj.id
+                self._prompt_name = prompt_version_obj.prompt_name
+                self._prompt_version = prompt_version_obj.version
+            else:
+                raise ValueError(f"Prompt '{prompt_name}' (version: {prompt_version or 'active'}) not found")
+        else:
+            # Legacy: Load from files
+            self._instructions = self._load_instructions()
+            self._profiling_guide = self._load_profiling_guide()
+            self._prompt_version_id = None
+            self._prompt_name = None
+            self._prompt_version = None
+
         self._instruction_summary = _summarise_markdown(self._instructions)
-        self._classification_reference = _build_classification_reference()
+        self._classification_reference = _build_classification_reference(self._profiling_guide)
         self._system_prompt = self._build_system_prompt()
         self._user_prompt = self._build_user_prompt()
         self._step_tracker = StepTrackerMiddleware(enable_diagnostics=self.enable_diagnostics)
@@ -826,72 +865,84 @@ def _summarise_markdown(content: str, max_lines: int = 28) -> str:
     return "\n".join(lines)
 
 
-def _build_classification_reference() -> str:
+def _build_classification_reference(profiling_guide: Optional[str] = None) -> str:
     """Return concise GTM classification options extracted from the profiling guide.
     
-    Tries to parse from the consolidated prompt file's CLASSIFICATION REFERENCE section.
-    Falls back to hardcoded defaults if parsing fails.
+    Tries to parse from the provided profiling_guide content or the consolidated prompt file's 
+    CLASSIFICATION REFERENCE section. Falls back to hardcoded defaults if parsing fails.
+    
+    Args:
+        profiling_guide: Optional pre-loaded profiling guide content (from database)
     """
 
-    # Try to load and parse from the consolidated file
-    try:
-        project_root = Path(__file__).resolve().parent.parent.parent
-        prompt_file = project_root / "prompts" / "research-agent-prompt.md"
-        
-        if prompt_file.exists():
-            content = prompt_file.read_text(encoding="utf-8")
+    # Use provided profiling guide if available (from database)
+    if profiling_guide:
+        content = profiling_guide
+    else:
+        # Try to load and parse from the consolidated file
+        try:
+            project_root = Path(__file__).resolve().parent.parent.parent
+            prompt_file = project_root / "prompts" / "research-agent-prompt.md"
             
-            # Extract CLASSIFICATION REFERENCE section
-            if "# CLASSIFICATION REFERENCE" in content:
-                parts = content.split("# CLASSIFICATION REFERENCE", 1)
-                if len(parts) > 1:
-                    section = parts[1].split("# DETAILED", 1)[0].strip()
+            if prompt_file.exists():
+                content = prompt_file.read_text(encoding="utf-8")
+            else:
+                content = ""
+        except Exception:
+            content = ""
+    
+    # Extract CLASSIFICATION REFERENCE section
+    try:
+        if content and "# CLASSIFICATION REFERENCE" in content:
+            parts = content.split("# CLASSIFICATION REFERENCE", 1)
+            if len(parts) > 1:
+                section = parts[1].split("# DETAILED", 1)[0].strip()
+                
+                # Parse ## headers and their content
+                lines = section.split('\n')
+                parsed_sections = {}
+                current_header = None
+                current_content = []
+                
+                for line in lines:
+                    line_stripped = line.strip()
+                    # Skip HTML comments and empty lines
+                    if line_stripped.startswith('<!--') or not line_stripped or line_stripped == '':
+                        continue
                     
-                    # Parse ## headers and their content
-                    lines = section.split('\n')
-                    parsed_sections = {}
-                    current_header = None
-                    current_content = []
-                    
-                    for line in lines:
-                        line_stripped = line.strip()
-                        # Skip HTML comments and empty lines
-                        if line_stripped.startswith('<!--') or not line_stripped or line_stripped == '':
-                            continue
+                    # Check for ## header
+                    if line_stripped.startswith('## '):
+                        # Save previous section if any
+                        if current_header and current_content:
+                            # Join content lines, removing extra whitespace
+                            content_str = ' '.join(current_content).strip()
+                            if content_str:
+                                parsed_sections[current_header] = content_str
                         
-                        # Check for ## header
-                        if line_stripped.startswith('## '):
-                            # Save previous section if any
-                            if current_header and current_content:
-                                # Join content lines, removing extra whitespace
-                                content_str = ' '.join(current_content).strip()
-                                if content_str:
-                                    parsed_sections[current_header] = content_str
-                            
-                            # Start new section
-                            current_header = line_stripped[3:].strip()
-                            current_content = []
-                        elif current_header:
-                            # Add content to current section (skip markdown list markers)
-                            if line_stripped:
-                                # Remove leading dashes/bullets and clean up
-                                cleaned = line_stripped.lstrip('-* ').strip()
-                                if cleaned and not cleaned.startswith('<!--'):
-                                    current_content.append(cleaned)
-                    
-                    # Save last section
-                    if current_header and current_content:
-                        content_str = ' '.join(current_content).strip()
-                        if content_str:
-                            parsed_sections[current_header] = content_str
-                    
-                    # If we parsed sections, use them
-                    if parsed_sections:
-                        reference_lines = [
-                            f"- {name}: {options}"
-                            for name, options in parsed_sections.items()
-                        ]
-                        return "\n".join(reference_lines)
+                        # Start new section
+                        current_header = line_stripped[3:].strip()
+                        current_content = []
+                    elif current_header:
+                        # Add content to current section (skip markdown list markers)
+                        if line_stripped:
+                            # Remove leading dashes/bullets and clean up
+                            cleaned = line_stripped.lstrip('-* ').strip()
+                            if cleaned and not cleaned.startswith('<!--'):
+                                current_content.append(cleaned)
+                
+                # Save last section
+                if current_header and current_content:
+                    content_str = ' '.join(current_content).strip()
+                    if content_str:
+                        parsed_sections[current_header] = content_str
+                
+                # If we parsed sections, use them
+                if parsed_sections:
+                    reference_lines = [
+                        f"- {name}: {options}"
+                        for name, options in parsed_sections.items()
+                    ]
+                    return "\n".join(reference_lines)
     except Exception:
         # Fall through to hardcoded defaults
         pass
