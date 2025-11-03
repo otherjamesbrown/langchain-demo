@@ -996,4 +996,154 @@ class LLMOutputValidationRunner:
             
         finally:
             session.close()
+    
+    def run_test_suite(
+        self,
+        company_names: List[str],
+        test_suite_name: str,
+        other_models: Optional[List[ModelConfiguration]] = None,
+        force_refresh: bool = False,
+        max_iterations: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Run tests for multiple companies and aggregate results.
+        
+        Educational: This demonstrates how to run a test suite across multiple
+        companies to get aggregate accuracy metrics. This is useful for:
+        - Comparing prompt versions across different company types
+        - Getting overall model performance metrics
+        - Testing prompt robustness across different industries
+        
+        Workflow:
+        1. Run test for each company (using run_test())
+        2. Collect all results
+        3. Aggregate accuracy scores across companies
+        4. Handle failures gracefully (continue if one company fails)
+        
+        Args:
+            company_names: List of company names to test
+            test_suite_name: Name to group all test runs together
+            other_models: List of model configs to test (None = all active models)
+            force_refresh: Force refresh ground truth even if cached
+            max_iterations: Max agent iterations
+            
+        Returns:
+            Dict with suite results including:
+            - test_suite_name: Name of the test suite
+            - total_companies: Number of companies in suite
+            - successful_companies: Number that completed successfully
+            - failed_companies: List of companies that failed
+            - test_run_ids: List of test run IDs for each company
+            - aggregated_accuracy: Aggregated scores across all companies
+            - results_by_company: Per-company results
+        """
+        if not company_names:
+            raise ValueError("company_names cannot be empty")
+        
+        if not test_suite_name:
+            raise ValueError("test_suite_name is required")
+        
+        results_by_company = {}
+        failed_companies = []
+        test_run_ids = []
+        all_grading_results = []
+        
+        # Run test for each company
+        for company_name in company_names:
+            try:
+                result = self.run_test(
+                    company_name=company_name,
+                    other_models=other_models,
+                    force_refresh=force_refresh,
+                    max_iterations=max_iterations,
+                    test_suite_name=test_suite_name,
+                )
+                
+                if result.get("success"):
+                    results_by_company[company_name] = result
+                    test_run_ids.append(result["test_run_id"])
+                    
+                    # Collect grading results for aggregation
+                    if result.get("grading_results_count", 0) > 0:
+                        session = get_session()
+                        try:
+                            grading_results = (
+                                session.query(LLMOutputValidationResult)
+                                .filter(
+                                    LLMOutputValidationResult.test_run_id == result["test_run_id"]
+                                )
+                                .all()
+                            )
+                            all_grading_results.extend(grading_results)
+                        finally:
+                            session.close()
+                else:
+                    failed_companies.append({
+                        "company": company_name,
+                        "error": result.get("error", "Unknown error"),
+                    })
+                    
+            except Exception as e:
+                failed_companies.append({
+                    "company": company_name,
+                    "error": str(e),
+                })
+                continue
+        
+        # Aggregate accuracy scores across all companies
+        aggregated_accuracy = {}
+        if all_grading_results:
+            # Aggregate overall accuracy
+            overall_accuracies = [r.overall_accuracy for r in all_grading_results]
+            aggregated_accuracy["overall"] = sum(overall_accuracies) / len(overall_accuracies) if overall_accuracies else 0.0
+            
+            # Aggregate required fields accuracy
+            required_accuracies = [
+                r.required_fields_accuracy 
+                for r in all_grading_results 
+                if r.required_fields_accuracy is not None
+            ]
+            aggregated_accuracy["required_fields"] = (
+                sum(required_accuracies) / len(required_accuracies) 
+                if required_accuracies else None
+            )
+            
+            # Aggregate optional fields accuracy
+            optional_accuracies = [
+                r.optional_fields_accuracy 
+                for r in all_grading_results 
+                if r.optional_fields_accuracy is not None
+            ]
+            aggregated_accuracy["optional_fields"] = (
+                sum(optional_accuracies) / len(optional_accuracies) 
+                if optional_accuracies else None
+            )
+            
+            # Aggregate weighted accuracy
+            weighted_accuracies = [
+                r.weighted_accuracy 
+                for r in all_grading_results 
+                if r.weighted_accuracy is not None
+            ]
+            aggregated_accuracy["weighted"] = (
+                sum(weighted_accuracies) / len(weighted_accuracies) 
+                if weighted_accuracies else None
+            )
+            
+            # Aggregate costs
+            total_grading_cost = sum(
+                r.grading_cost_usd or 0 
+                for r in all_grading_results
+            )
+            aggregated_accuracy["total_grading_cost"] = total_grading_cost
+        
+        return {
+            "test_suite_name": test_suite_name,
+            "total_companies": len(company_names),
+            "successful_companies": len(results_by_company),
+            "failed_companies": failed_companies,
+            "test_run_ids": test_run_ids,
+            "aggregated_accuracy": aggregated_accuracy,
+            "results_by_company": results_by_company,
+        }
 
