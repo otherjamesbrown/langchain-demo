@@ -627,10 +627,28 @@ recent_tests = get_test_executions(
 if recent_tests:
     test_data = []
     for test in recent_tests:
+        # Calculate required fields count from extracted company info
+        required_fields_count = 0
+        if test.extracted_company_info:
+            ci = test.extracted_company_info
+            
+            # Check each required field
+            if ci.get("company_name") and "bitmovin" in str(ci.get("company_name", "")).lower():
+                required_fields_count += 1
+            if ci.get("industry") and ("video" in str(ci.get("industry", "")).lower() or "streaming" in str(ci.get("industry", "")).lower()):
+                required_fields_count += 1
+            if ci.get("company_size") and ("51" in str(ci.get("company_size", "")) or "200" in str(ci.get("company_size", ""))):
+                required_fields_count += 1
+            if ci.get("headquarters") and ("san francisco" in str(ci.get("headquarters", "")).lower() or "california" in str(ci.get("headquarters", "")).lower()):
+                required_fields_count += 1
+            if ci.get("founded") == 2013:
+                required_fields_count += 1
+        
         test_data.append({
             "Model": test.model_name,
             "Provider": test.model_provider,
             "Success": "✅" if test.success and test.required_fields_valid else "❌",
+            "Required Fields": f"{required_fields_count}/5",
             "Optional Fields": f"{test.optional_fields_count or 0}/10",
             "Time": f"{test.execution_time_seconds:.2f}s" if test.execution_time_seconds else "N/A",
             "Date": test.created_at.strftime("%Y-%m-%d %H:%M:%S"),
