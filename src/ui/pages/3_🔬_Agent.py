@@ -31,6 +31,7 @@ from src.database.operations import (
     get_model_configurations,
     get_last_used_model,
     set_last_used_model,
+    get_api_key,
 )
 from src.utils.llm_logger import log_llm_call
 from src.utils.metrics import LLMMetrics
@@ -65,14 +66,38 @@ ensure_default_configuration(session=session)
 # Sidebar configuration
 st.sidebar.header("⚙️ Agent Configuration")
 
-configured_models = get_model_configurations(session=session)
+# Get all active models from database
+all_models = get_model_configurations(session=session)
+
+# Filter to only include valid, usable models
+valid_models = []
+for model in all_models:
+    if model.provider == "local":
+        # Local models must have a valid path that exists
+        if model.model_path:
+            model_path = Path(model.model_path).expanduser()
+            if model_path.exists():
+                valid_models.append(model)
+        # If no path or path doesn't exist, skip this model
+    else:
+        # Remote models (openai, anthropic, gemini) must have:
+        # 1. An api_identifier configured
+        # 2. A corresponding API key in the database
+        if model.api_identifier:
+            api_key = get_api_key(model.provider, session=session)
+            if api_key:
+                valid_models.append(model)
+        # If no api_identifier or no API key, skip this model
+
+configured_models = valid_models
 
 if not configured_models:
-    st.sidebar.error("No models configured. Use the Home page to add model entries before running the agent.")
+    st.sidebar.error("No valid models configured. Use the Home page to add model entries and configure API keys.")
     st.stop()
 
 last_used = get_last_used_model(session=session)
 default_index = 0
+# Only use last_used if it's in our valid models list
 if last_used is not None:
     for idx, model in enumerate(configured_models):
         if model.id == last_used.id:
@@ -95,21 +120,14 @@ local_model_path: Path | None = None
 local_model_key: str | None = None
 model_kwargs: dict[str, str] = {}
 
+# Since we've already validated models above, we can safely use them here
 if selected_model.provider == "local":
-    if selected_model.model_path:
-        local_model_path = Path(selected_model.model_path).expanduser()
-        if not local_model_path.exists():
-            st.sidebar.error(
-                f"Model file missing: {local_model_path}. Update the model configuration on the Home page."
-            )
-            st.stop()
-    else:
-        st.sidebar.error("Selected local model does not have a path configured. Update it on the Home page.")
-        st.stop()
+    # Model path already validated to exist in filter above
+    local_model_path = Path(selected_model.model_path).expanduser()
     local_model_key = selected_model.model_key or selected_model.name
 else:
-    if selected_model.api_identifier:
-        model_kwargs["model_name"] = selected_model.api_identifier
+    # API identifier and key already validated in filter above
+    model_kwargs["model_name"] = selected_model.api_identifier
 
 metadata = selected_model.extra_metadata or {}
 st.sidebar.caption(f"Provider: `{selected_model.provider}`")

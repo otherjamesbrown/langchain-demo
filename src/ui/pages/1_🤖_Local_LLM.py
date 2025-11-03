@@ -61,14 +61,23 @@ ensure_default_configuration(session=session)
 
 # Model configuration sidebar
 st.sidebar.header("⚙️ Model Configuration")
-local_models = [
-    model
-    for model in get_model_configurations(provider="local", session=session)
-    if model.is_active
-]
+
+# Get all active local models from database
+all_local_models = get_model_configurations(provider="local", session=session)
+
+# Filter to only include valid local models (must have a valid path that exists)
+valid_local_models = []
+for model in all_local_models:
+    if model.model_path:
+        model_path = Path(model.model_path).expanduser()
+        if model_path.exists():
+            valid_local_models.append(model)
+    # If no path or path doesn't exist, skip this model
+
+local_models = valid_local_models
 
 if not local_models:
-    st.sidebar.error("No local models configured. Add models on the Home page first.")
+    st.sidebar.error("No valid local models configured. Add models with valid file paths on the Home page.")
     st.stop()
 
 last_used = get_last_used_model(session=session)
@@ -91,7 +100,8 @@ if not last_used or last_used.id != selected_model.id:
     set_last_used_model(selected_model.id, session=session)
 
 model_key = selected_model.model_key or selected_model.name
-model_path = (selected_model.model_path or "").strip()
+# Model path already validated to exist in filter above
+model_path = selected_model.model_path.strip()
 
 metadata = selected_model.extra_metadata or {}
 if metadata.get("description"):
@@ -102,8 +112,8 @@ if metadata.get("recommended_vram_gb") or metadata.get("context_window"):
         f"{metadata.get('recommended_vram_gb', 'N/A')}GB | "
         f"Context window: {metadata.get('context_window', 'N/A')}"
     )
-if model_path:
-    st.sidebar.code(model_path, language="bash")
+# Path already validated, so it's safe to display
+st.sidebar.code(model_path, language="bash")
 
 default_max_tokens = int(metadata.get("max_output_tokens", 512))
 
@@ -181,16 +191,8 @@ def load_llm(model_key: str, model_path: str, temperature: float, max_tokens: in
     except Exception as e:
         return None, str(e)
 
-# Check if model file exists
-if not model_path:
-    st.error("❌ No model path configured for this model. Update the configuration on the Home page.")
-    st.stop()
-
+# Model path already validated in filter above, so we can safely use it
 resolved_model_path = Path(model_path).expanduser()
-if not resolved_model_path.exists():
-    st.error(f"❌ Model file not found: {resolved_model_path}")
-    st.info("💡 Update the model configuration on the Home page to point to a valid file path.")
-    st.stop()
 
 # Show loading indicator
 with st.spinner("Loading model..."):
