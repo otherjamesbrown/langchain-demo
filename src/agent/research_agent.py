@@ -70,11 +70,31 @@ class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
     ``intermediate_steps`` to help learners follow the ReAct cycle.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, enable_diagnostics: bool = False) -> None:
         self._current_steps: List[Dict[str, Any]] = []
         self.last_run_steps: List[Dict[str, Any]] = []
         self._model_calls: int = 0
         self.last_run_iterations: int = 0
+        self.enable_diagnostics = enable_diagnostics
+        self._generation_start_time: Optional[float] = None
+        
+        # Import diagnostic utilities if enabled
+        if self.enable_diagnostics:
+            try:
+                from src.utils.llama_diagnostics import (
+                    log_prompt_stats,
+                    log_response_stats,
+                    log_agent_iteration_summary,
+                    log_context_budget_analysis,
+                    estimate_token_count,
+                )
+                self._log_prompt = log_prompt_stats
+                self._log_response = log_response_stats
+                self._log_iteration = log_agent_iteration_summary
+                self._log_budget = log_context_budget_analysis
+                self._estimate_tokens = estimate_token_count
+            except ImportError:
+                self.enable_diagnostics = False
 
     # ------------------------------------------------------------------
     # Lifecycle hooks
@@ -88,18 +108,58 @@ class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
         self.last_run_iterations = 0
         return None
 
+    def before_model(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
+        """Log prompt details before model call (for diagnostics)."""
+        
+        if self.enable_diagnostics and hasattr(self, "_log_prompt"):
+            # Extract prompt from state
+            messages = state.get("messages", [])
+            if messages:
+                # Construct full prompt text from messages
+                prompt_parts = []
+                for msg in messages:
+                    content = _message_to_text(msg)
+                    role = getattr(msg, "role", type(msg).__name__)
+                    prompt_parts.append(f"[{role}]: {content}")
+                
+                full_prompt = "\n\n".join(prompt_parts)
+                self._log_prompt(full_prompt, self._model_calls + 1, self._model_calls + 1)
+        
+        # Start timing
+        self._generation_start_time = time.time()
+        return None
+
     def after_model(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
         """Record every language model call as an iteration step."""
 
         self._model_calls += 1
         last_message = state["messages"][-1]
+        response_text = _message_to_text(last_message)
+        
+        # Calculate generation time
+        generation_time = 0.0
+        if self._generation_start_time:
+            generation_time = time.time() - self._generation_start_time
+        
         self._current_steps.append(
             {
                 "type": "model",
                 "iteration": self._model_calls,
-                "content": _message_to_text(last_message),
+                "content": response_text,
+                "generation_time": generation_time,
             }
         )
+        
+        # Diagnostic logging
+        if self.enable_diagnostics and hasattr(self, "_log_response"):
+            self._log_response(
+                response_text,
+                self._model_calls,
+                self._model_calls,
+                generation_time,
+                is_final=False,
+            )
+        
         return None
 
     def wrap_tool_call(
@@ -128,6 +188,16 @@ class StepTrackerMiddleware(AgentMiddleware[AgentState, None]):
 
         self.last_run_steps = list(self._current_steps)
         self.last_run_iterations = self._model_calls
+        
+        # Diagnostic logging: iteration summary
+        if self.enable_diagnostics and hasattr(self, "_log_iteration"):
+            self._log_iteration(
+                iteration=self._model_calls,
+                total_iterations=self._model_calls,
+                agent_finished=True,
+                reason="Agent completed execution",
+            )
+        
         return None
 
     @property
@@ -156,6 +226,7 @@ class ResearchAgent:
         local_model: Optional[str] = None,
         model_path: Optional[str] = None,
         model_kwargs: Optional[Dict[str, Any]] = None,
+        enable_diagnostics: bool = False,
     ) -> None:
         self.model_type = model_type
         self.verbose = verbose
@@ -167,6 +238,11 @@ class ResearchAgent:
         self._resolved_model_path: Optional[str] = None
         self._model_display_name: Optional[str] = None
         self.model_kwargs = model_kwargs or {}
+        self.enable_diagnostics = enable_diagnostics
+
+        # Pass diagnostics flag to model initialization
+        if self.enable_diagnostics and self.model_type == "local":
+            self.model_kwargs["enable_diagnostics"] = True
 
         self._instructions = self._load_instructions()
         self._profiling_guide = self._load_profiling_guide()
@@ -174,7 +250,7 @@ class ResearchAgent:
         self._classification_reference = _build_classification_reference()
         self._system_prompt = self._build_system_prompt()
         self._user_prompt = self._build_user_prompt()
-        self._step_tracker = StepTrackerMiddleware()
+        self._step_tracker = StepTrackerMiddleware(enable_diagnostics=self.enable_diagnostics)
         self._resolve_model_metadata()
         self._agent = self._build_agent()
 
@@ -240,6 +316,41 @@ class ResearchAgent:
 
         company_info = self._parse_company_info(agent_output.get("structured_response"), raw_output, company_name)
         success = company_info is not None
+
+        # Final diagnostic logging
+        if self.enable_diagnostics and self.model_type == "local":
+            try:
+                from src.utils.llama_diagnostics import (
+                    log_context_budget_analysis,
+                    estimate_token_count,
+                )
+                
+                # Get context window from model_kwargs
+                n_ctx = self.model_kwargs.get("n_ctx", 8192)
+                max_tokens = self.model_kwargs.get("max_tokens", 4096)
+                
+                # Estimate tokens from all messages
+                all_messages = agent_output.get("messages", [])
+                total_input_tokens = 0
+                total_output_tokens = 0
+                
+                for msg in all_messages:
+                    msg_text = _message_to_text(msg)
+                    msg_tokens = estimate_token_count(msg_text)
+                    # Roughly classify as input or output based on message type
+                    if isinstance(msg, AIMessage):
+                        total_output_tokens += msg_tokens
+                    else:
+                        total_input_tokens += msg_tokens
+                
+                log_context_budget_analysis(
+                    n_ctx=n_ctx,
+                    estimated_input_tokens=total_input_tokens,
+                    estimated_output_tokens=total_output_tokens,
+                    max_tokens=max_tokens,
+                )
+            except ImportError:
+                pass
 
         return ResearchAgentResult(
             company_name=company_name,

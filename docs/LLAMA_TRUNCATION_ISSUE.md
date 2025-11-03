@@ -136,46 +136,74 @@ elif suggested_ctx:
 return ChatLlamaCpp(**llama_params)
 ```
 
-## Next Steps / Potential Solutions
+## Diagnostic Tools (NEW)
 
-### 1. Verify ChatLlamaCpp Parameters
-- Check actual `ChatLlamaCpp.__init__()` signature
-- Inspect what parameters it accepts
-- Verify parameter names match our expectations
+✅ **A comprehensive diagnostic logging system has been implemented** to help identify the root cause. See [LLAMA_DIAGNOSTICS_GUIDE.md](LLAMA_DIAGNOSTICS_GUIDE.md) for complete documentation.
 
-### 2. Check Prompt Token Count
-- Log actual prompt size in tokens
-- Verify `n_ctx: 8192` is sufficient for input + output
-- Calculate: `input_tokens + max_output_tokens <= n_ctx`
+### Quick Start
 
-### 3. Try Invocation-Time Parameters
-- Pass `max_tokens`/`n_predict` via `.invoke()` kwargs instead of constructor
-- May require custom wrapper or monkey-patching
+**Option 1: Enable in UI**
+1. Navigate to Agent page
+2. Check "Enable Diagnostics" in sidebar
+3. Run research and check console output
 
-### 4. Check Stop Sequences
-- Inspect if agent framework adds stop sequences
-- Check if Llama 3.1 format has implicit stops
-- Disable or modify stop sequences
+**Option 2: Command-Line Test**
+```bash
+python scripts/test_llama_diagnostics.py BitMovin
+```
 
-### 5. Direct llama-cpp-python Test
-- Test model directly with `llama-cpp-python` (bypassing LangChain)
-- Verify `n_predict` works correctly at that level
-- Isolate whether issue is LangChain wrapper or underlying library
+### What the Diagnostics Capture
 
-### 6. Version Compatibility
-- Check `llama-cpp-python` version on server
-- Check `langchain-community` version
-- Verify compatibility between versions
+1. ✅ **Model Initialization**: Exact parameters passed to ChatLlamaCpp
+2. ✅ **Token Counts**: Estimated input/output tokens per iteration
+3. ✅ **Prompt Content**: Full prompts sent to model (with preview)
+4. ✅ **Response Content**: Complete responses with truncation detection
+5. ✅ **Context Budget**: Analysis of context window utilization
+6. ✅ **Performance Metrics**: Generation time and tokens/sec
 
-### 7. Alternative: Increase Context Window
-- Try increasing `n_ctx` beyond 8192 (if supported)
-- Verify model actually supports larger context
-- May reveal if truncation is due to context limits
+See [LLAMA_DIAGNOSTICS_GUIDE.md](LLAMA_DIAGNOSTICS_GUIDE.md) for detailed usage instructions and interpreting the output.
 
-### 8. Debug Logging
-- Add verbose logging to see actual parameters passed
-- Log token counts (input/output)
-- Log when truncation occurs (model level vs agent level)
+## Next Steps / Investigation Workflow
+
+### 1. Run Diagnostics First
+```bash
+# Test with BitMovin (known truncation case)
+python scripts/test_llama_diagnostics.py BitMovin
+```
+
+Review the diagnostic output to identify:
+- Is context window being exhausted? (>90% utilization)
+- Are parameters being set correctly? (max_tokens, n_predict visible in init log)
+- Where does truncation occur? (response stats show truncation indicators)
+- Is generation abnormally slow? (<10 tokens/sec suggests GPU not used)
+
+### 2. Based on Diagnostic Output
+
+**If context budget >90% full:**
+- Input prompts are too large
+- Reduce instruction summary length
+- Or increase n_ctx (if model supports it)
+
+**If context budget <50% but still truncates:**
+- Parameters may not be respected
+- Try direct llama-cpp-python test (see diagnostic guide)
+- Check ChatLlamaCpp parameter handling
+
+**If truncation at consistent points:**
+- Check for stop sequences
+- May be hitting implicit stops in chat format
+
+**If parameters look correct but still fails:**
+- Model-specific behavior issue
+- Try different quantization (Q5_K_M vs Q4_K_M)
+- Test with different model entirely
+
+### 3. Additional Investigation Steps
+
+- **Version Compatibility**: Check `llama-cpp-python` and `langchain-community` versions
+- **Direct Testing**: Test model without LangChain wrapper
+- **Comparison**: Run same company with Gemini to verify agent logic is sound
+- **GPU Utilization**: Monitor with `nvidia-smi` to ensure GPU is being used
 
 ## Related Issues / References
 
@@ -193,7 +221,23 @@ return ChatLlamaCpp(**llama_params)
 
 ---
 
-**Status**: ❌ **OPEN** - Issue persists after multiple fix attempts
+## Status
 
-**Last Updated**: 2025-01-27
+**Current State**: 🔍 **INVESTIGATING** - Comprehensive diagnostic tools implemented
+
+**Last Updated**: 2025-11-03
+
+### What's Been Done
+- ✅ Implemented comprehensive diagnostic logging system
+- ✅ Added UI toggle for enabling diagnostics
+- ✅ Created command-line test script
+- ✅ Token counting and context budget analysis
+- ✅ Truncation detection in responses
+- ✅ Complete documentation in LLAMA_DIAGNOSTICS_GUIDE.md
+
+### Next Steps
+1. Run diagnostic tests to capture detailed output
+2. Analyze diagnostic logs to identify root cause
+3. Based on findings, implement targeted fix
+4. Document solution and update this issue
 

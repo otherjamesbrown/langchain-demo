@@ -177,6 +177,16 @@ verbose_mode = st.sidebar.checkbox(
     help="Show detailed agent reasoning steps"
 )
 
+# 🔍 Diagnostic mode for troubleshooting (especially useful for local models)
+enable_diagnostics = st.sidebar.checkbox(
+    "Enable Diagnostics",
+    value=False,
+    help="🔍 Enable detailed diagnostic logging (useful for debugging truncation issues with local models). Logs token counts, prompts, responses, and context budget analysis."
+)
+
+if enable_diagnostics:
+    st.sidebar.warning("⚠️ Diagnostic logging is enabled. Check console output for detailed information.")
+
 # Main interface
 st.subheader("📋 Company List")
 st.markdown("Enter company names, one per line:")
@@ -254,6 +264,7 @@ if execute_button:
                     local_model=local_model_key if model_type == "local" else None,
                     model_path=model_path_str,
                     model_kwargs=model_kwargs,
+                    enable_diagnostics=enable_diagnostics,
                 )
                 if model_type == "local":
                     st.success(

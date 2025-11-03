@@ -378,6 +378,19 @@ def _create_local_chat_model(
     if chat_format and "chat_format" not in kwargs:
         llama_params["chat_format"] = chat_format
 
+    # 🔍 DIAGNOSTIC LOGGING: Log model initialization for truncation debugging
+    enable_diagnostics = kwargs.get("enable_diagnostics", False)
+    if enable_diagnostics:
+        try:
+            from src.utils.llama_diagnostics import log_model_initialization
+            log_model_initialization(
+                model_path=str(resolved_path),
+                parameters=llama_params,
+                context_window=suggested_ctx,
+            )
+        except ImportError:
+            pass  # Diagnostics module not available
+
     return ChatLlamaCpp(**llama_params)
 
 

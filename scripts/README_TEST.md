@@ -2,12 +2,28 @@
 
 ## Quick Start
 
+### Standard Testing
+
 To test the research agent with the three companies (BitMovin, Hydrolix, Queue-it):
 
 ```bash
 # From project root
 python scripts/test_companies.py
 ```
+
+### Diagnostic Testing (For Troubleshooting)
+
+To test with comprehensive diagnostic logging (useful for debugging Llama truncation issues):
+
+```bash
+# Test single company with diagnostics
+python scripts/test_llama_diagnostics.py BitMovin
+
+# Test with custom options
+python scripts/test_llama_diagnostics.py "Queue-it" --max-iterations 3
+```
+
+See [docs/LLAMA_DIAGNOSTICS_GUIDE.md](../docs/LLAMA_DIAGNOSTICS_GUIDE.md) for complete diagnostic documentation.
 
 ## Configuration
 
