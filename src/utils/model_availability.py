@@ -205,7 +205,7 @@ def get_available_models(
     provider_filter: Optional[List[str]] = None,
     session: Optional[Session] = None,
     include_reasons: bool = False,
-) -> List[Dict[str, Any]] | Tuple[List[Dict[str, Any]], Dict[str, str]]:
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, str]]]:
     """
     Get available model configurations from database.
     
