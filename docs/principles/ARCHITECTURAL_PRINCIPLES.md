@@ -225,8 +225,6 @@ def check_provider_packages_installed(provider: str) -> bool:
 **Reference**: 
 - `src/utils/model_availability.py` - Shared model availability utilities
 - `docs/implemented/MODEL_AVAILABILITY_UTILITIES.md` - Utilities documentation
-
-**Reference**: 
 - `.cursorrules` - File organization guidelines
 - `PROJECT_STRUCTURE.md` - Directory layout
 
