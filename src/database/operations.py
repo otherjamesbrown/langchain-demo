@@ -16,6 +16,7 @@ from src.database.schema import (
     ModelConfiguration,
     APICredential,
     AppSetting,
+    TestExecution,
     get_session,
     create_database
 )
@@ -585,4 +586,89 @@ def save_search_history(
             session.close()
 
 
+def save_test_execution(
+    test_name: str,
+    test_company: str,
+    model_configuration_id: Optional[int],
+    model_name: str,
+    model_provider: str,
+    success: bool,
+    required_fields_valid: bool,
+    execution_time_seconds: Optional[float] = None,
+    iterations: Optional[int] = None,
+    required_fields_errors: Optional[List[str]] = None,
+    required_fields_warnings: Optional[List[str]] = None,
+    optional_fields_count: Optional[int] = None,
+    optional_fields_coverage: Optional[float] = None,
+    optional_fields_present: Optional[List[str]] = None,
+    extracted_company_info: Optional[dict] = None,
+    raw_output: Optional[str] = None,
+    error_message: Optional[str] = None,
+    session: Optional[Session] = None,
+) -> TestExecution:
+    """Save test execution results to the database."""
+    
+    db_session, should_close = _resolve_session(session)
+    
+    try:
+        test_record = TestExecution(
+            test_name=test_name,
+            test_company=test_company,
+            model_configuration_id=model_configuration_id,
+            model_name=model_name,
+            model_provider=model_provider,
+            success=success,
+            required_fields_valid=required_fields_valid,
+            execution_time_seconds=execution_time_seconds,
+            iterations=iterations,
+            required_fields_errors=required_fields_errors,
+            required_fields_warnings=required_fields_warnings,
+            optional_fields_count=optional_fields_count,
+            optional_fields_coverage=optional_fields_coverage,
+            optional_fields_present=optional_fields_present,
+            extracted_company_info=extracted_company_info,
+            raw_output=raw_output,
+            error_message=error_message,
+        )
+        db_session.add(test_record)
+        db_session.commit()
+        return test_record
+    except Exception as e:
+        db_session.rollback()
+        raise Exception(f"Failed to save test execution: {str(e)}")
+    finally:
+        if should_close:
+            db_session.close()
+
+
+def get_test_executions(
+    test_name: Optional[str] = None,
+    test_company: Optional[str] = None,
+    model_provider: Optional[str] = None,
+    limit: Optional[int] = None,
+    session: Optional[Session] = None,
+) -> List[TestExecution]:
+    """Retrieve test execution results from the database."""
+    
+    db_session, should_close = _resolve_session(session)
+    
+    try:
+        query = db_session.query(TestExecution)
+        
+        if test_name:
+            query = query.filter(TestExecution.test_name == test_name)
+        if test_company:
+            query = query.filter(TestExecution.test_company == test_company)
+        if model_provider:
+            query = query.filter(TestExecution.model_provider == model_provider)
+        
+        query = query.order_by(TestExecution.created_at.desc())
+        
+        if limit:
+            query = query.limit(limit)
+        
+        return query.all()
+    finally:
+        if should_close:
+            db_session.close()
 

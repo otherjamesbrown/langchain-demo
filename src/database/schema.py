@@ -291,6 +291,46 @@ class ModelConfiguration(Base):
         return f"<ModelConfiguration(id={self.id}, name='{self.name}', provider='{self.provider}')>"
 
 
+class TestExecution(Base):
+    """Stores results from automated tests like BitMovin research test."""
+
+    __tablename__ = "test_executions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    test_name = Column(String(255), nullable=False, index=True)  # e.g., "bitmovin_research"
+    test_company = Column(String(255), nullable=False)  # e.g., "BitMovin"
+    model_configuration_id = Column(Integer, ForeignKey("model_configurations.id"), nullable=True, index=True)
+    model_name = Column(String(255), nullable=False)  # Name of the model used
+    model_provider = Column(String(50), nullable=False)  # local, openai, anthropic, gemini
+    
+    # Test execution metadata
+    success = Column(Boolean, nullable=False)  # Whether test passed
+    execution_time_seconds = Column(Float, nullable=True)
+    iterations = Column(Integer, nullable=True)
+    
+    # Validation results
+    required_fields_valid = Column(Boolean, nullable=False)
+    required_fields_errors = Column(JSON, nullable=True)  # List of validation errors
+    required_fields_warnings = Column(JSON, nullable=True)  # List of validation warnings
+    
+    optional_fields_count = Column(Integer, nullable=True)  # Number of optional fields found
+    optional_fields_coverage = Column(Float, nullable=True)  # Percentage coverage (0-1)
+    optional_fields_present = Column(JSON, nullable=True)  # List of optional field names found
+    
+    # Extracted company info (as JSON)
+    extracted_company_info = Column(JSON, nullable=True)
+    
+    # Raw output and error info
+    raw_output = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    def __repr__(self) -> str:
+        return f"<TestExecution(id={self.id}, test='{self.test_name}', model='{self.model_name}', success={self.success})>"
+
+
 class APICredential(Base):
     """Store API credentials for remote model providers."""
 

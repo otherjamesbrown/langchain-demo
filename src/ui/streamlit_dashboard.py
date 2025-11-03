@@ -593,55 +593,32 @@ Queue-it"""
 
                                 # Surface key GTM attributes so students can compare companies quickly.
                                 gtm_snapshot_fields = [
-                                    (
-                                        "Growth Stage",
-                                        info.growth_stage,
-                                        info.growth_stage_reason,
-                                    ),
-                                    (
-                                        "Company Size",
-                                        info.company_size,
-                                        info.company_size_reason,
-                                    ),
-                                    (
-                                        "Industry Vertical",
-                                        info.industry_vertical,
-                                        info.industry_vertical_reason,
-                                    ),
-                                    (
-                                        "Sub-Industry Vertical",
-                                        info.sub_industry_vertical,
-                                        info.sub_industry_vertical_reason,
-                                    ),
-                                    (
-                                        "Financial Health",
-                                        info.financial_health,
-                                        info.financial_health_reason,
-                                    ),
+                                    ("Growth Stage", info.growth_stage),
+                                    ("Company Size", info.company_size),
+                                    ("Industry Vertical", info.industry_vertical),
+                                    ("Sub-Industry Vertical", info.sub_industry_vertical),
+                                    ("Financial Health", info.financial_health),
                                     (
                                         "Business & Technology Adoption",
                                         info.business_and_technology_adoption,
-                                        info.business_and_technology_adoption_reason,
                                     ),
                                 ]
 
                                 populated_snapshot_fields = [
-                                    (label, value, reason)
-                                    for label, value, reason in gtm_snapshot_fields
-                                    if value or reason
+                                    (label, value)
+                                    for label, value in gtm_snapshot_fields
+                                    if value
                                 ]
 
                                 if populated_snapshot_fields:
                                     st.write("**Go-To-Market Snapshot:**")
                                     snapshot_columns = st.columns(2)
-                                    for index, (label, value, reason) in enumerate(populated_snapshot_fields):
+                                    for index, (label, value) in enumerate(populated_snapshot_fields):
                                         target_column = snapshot_columns[index % len(snapshot_columns)]
                                         with target_column:
                                             st.markdown(
                                                 f"**{label}:** {value or 'Not identified'}"
                                             )
-                                            if reason:
-                                                st.caption(f"Reasoning: {reason}")
 
                                 if info.products:
                                     with st.expander("Products"):

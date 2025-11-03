@@ -398,55 +398,32 @@ if execute_button:
 
                             # Highlight core GTM classifications so learners see key signals upfront.
                             gtm_snapshot_fields = [
-                                (
-                                    "Growth Stage",
-                                    info.growth_stage,
-                                    info.growth_stage_reason,
-                                ),
-                                (
-                                    "Company Size",
-                                    info.company_size,
-                                    info.company_size_reason,
-                                ),
-                                (
-                                    "Industry Vertical",
-                                    info.industry_vertical,
-                                    info.industry_vertical_reason,
-                                ),
-                                (
-                                    "Sub-Industry Vertical",
-                                    info.sub_industry_vertical,
-                                    info.sub_industry_vertical_reason,
-                                ),
-                                (
-                                    "Financial Health",
-                                    info.financial_health,
-                                    info.financial_health_reason,
-                                ),
+                                ("Growth Stage", info.growth_stage),
+                                ("Company Size", info.company_size),
+                                ("Industry Vertical", info.industry_vertical),
+                                ("Sub-Industry Vertical", info.sub_industry_vertical),
+                                ("Financial Health", info.financial_health),
                                 (
                                     "Business & Technology Adoption",
                                     info.business_and_technology_adoption,
-                                    info.business_and_technology_adoption_reason,
                                 ),
                             ]
 
                             populated_snapshot_fields = [
-                                (label, value, reason)
-                                for label, value, reason in gtm_snapshot_fields
-                                if value or reason
+                                (label, value)
+                                for label, value in gtm_snapshot_fields
+                                if value
                             ]
 
                             if populated_snapshot_fields:
                                 st.write("**Go-To-Market Snapshot:**")
                                 snapshot_columns = st.columns(2)
-                                for index, (label, value, reason) in enumerate(populated_snapshot_fields):
+                                for index, (label, value) in enumerate(populated_snapshot_fields):
                                     target_column = snapshot_columns[index % len(snapshot_columns)]
                                     with target_column:
                                         st.markdown(
                                             f"**{label}:** {value or 'Not identified'}"
                                         )
-                                        if reason:
-                                            st.caption(f"Reasoning: {reason}")
 
                             if info.products:
                                 with st.expander("Products"):
@@ -459,53 +436,34 @@ if execute_button:
                                         st.write(f"- {competitor}")
 
                             gtm_fields = [
-                                ("Growth Stage", info.growth_stage, info.growth_stage_reason),
-                                (
-                                    "Industry Vertical",
-                                    info.industry_vertical,
-                                    info.industry_vertical_reason,
-                                ),
-                                (
-                                    "Sub-Industry Vertical",
-                                    info.sub_industry_vertical,
-                                    info.sub_industry_vertical_reason,
-                                ),
-                                ("Financial Health", info.financial_health, info.financial_health_reason),
+                                ("Growth Stage", info.growth_stage),
+                                ("Industry Vertical", info.industry_vertical),
+                                ("Sub-Industry Vertical", info.sub_industry_vertical),
+                                ("Financial Health", info.financial_health),
                                 (
                                     "Business & Technology Adoption",
                                     info.business_and_technology_adoption,
-                                    info.business_and_technology_adoption_reason,
                                 ),
-                                (
-                                    "Primary Workload Philosophy",
-                                    info.primary_workload_philosophy,
-                                    info.primary_workload_philosophy_reason,
-                                ),
-                                ("Buyer Journey", info.buyer_journey, info.buyer_journey_reason),
-                                ("Budget Maturity", info.budget_maturity, info.budget_maturity_reason),
-                                ("Cloud Spend Capacity", info.cloud_spend_capacity, info.cloud_spend_capacity_reason),
-                                ("Procurement Process", info.procurement_process, info.procurement_process_reason),
+                                ("Primary Workload Philosophy", info.primary_workload_philosophy),
+                                ("Buyer Journey", info.buyer_journey),
+                                ("Budget Maturity", info.budget_maturity),
+                                ("Cloud Spend Capacity", info.cloud_spend_capacity),
+                                ("Procurement Process", info.procurement_process),
                             ]
 
-                            has_gtm_data = any(value for _, value, _ in gtm_fields) or bool(info.key_personas)
+                            has_gtm_data = any(value for _, value in gtm_fields) or bool(info.key_personas)
 
                             if has_gtm_data:
                                 with st.expander("Go-To-Market Profiling"):
-                                    for label, value, reason in gtm_fields:
-                                        if not value and not reason:
+                                    for label, value in gtm_fields:
+                                        if not value:
                                             continue
                                         st.markdown(f"**{label}:** {value or 'Not identified'}")
-                                        if reason:
-                                            st.caption(f"Reasoning: {reason}")
 
                                     if info.key_personas:
                                         st.markdown("**Key Personas:**")
                                         for persona in info.key_personas:
                                             st.write(f"- {persona}")
-                                        if info.key_personas_reason:
-                                            st.caption(
-                                                f"Why these personas matter: {info.key_personas_reason}"
-                                            )
 
                         # Show raw result details
                         with st.expander("View Raw Result"):
