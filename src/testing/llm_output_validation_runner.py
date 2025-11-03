@@ -11,6 +11,7 @@ Educational: This demonstrates a different testing approach where:
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import not_, and_
 
 from src.agent.research_agent import ResearchAgent, ResearchAgentResult
 from src.database.schema import (
@@ -18,9 +19,12 @@ from src.database.schema import (
     TestRun,
     ModelConfiguration,
     PromptVersion,
+    LLMOutputValidationResult,
+    GradingPromptVersion,
     get_session,
 )
 from src.prompts.prompt_manager import PromptManager
+from src.prompts.grading_prompt_manager import GradingPromptManager
 
 
 class LLMOutputValidationRunner:
@@ -399,6 +403,404 @@ class LLMOutputValidationRunner:
         session.commit()
         return copied
     
+    def _get_other_models(self, session: Session) -> List[ModelConfiguration]:
+        """
+        Get all active models except Gemini Pro.
+        
+        Educational: This retrieves all active model configurations from the database
+        that can be tested. We exclude Gemini Pro since it's used as ground truth.
+        """
+        return (
+            session.query(ModelConfiguration)
+            .filter(ModelConfiguration.is_active == True)
+            .all()
+        )
+    
+    def _delete_other_model_outputs(
+        self,
+        session: Session,
+        company_name: str,
+        test_run_id: int,
+    ) -> None:
+        """
+        Delete outputs from other models for this test run.
+        
+        Educational: This ensures clean test runs - if we re-run a test, we remove
+        old outputs from other models (but keep Gemini Pro ground truth) to avoid
+        duplicate results.
+        """
+        (
+            session.query(LLMOutputValidation)
+            .filter(
+                LLMOutputValidation.test_name == self.test_name,
+                LLMOutputValidation.company_name == company_name,
+                not_(
+                    and_(
+                        LLMOutputValidation.model_provider == "gemini",
+                        LLMOutputValidation.model_name == self.gemini_pro_model_name
+                    )
+                ),
+                LLMOutputValidation.test_run_id == test_run_id,
+            )
+            .delete()
+        )
+        session.commit()
+    
+    def _run_model_and_store(
+        self,
+        session: Session,
+        company_name: str,
+        test_run_id: int,
+        model_config: ModelConfiguration,
+        max_iterations: int,
+    ) -> Optional[LLMOutputValidation]:
+        """
+        Run agent for a model and store output.
+        
+        Educational: This demonstrates how to run the ResearchAgent with different
+        models and store their outputs. Each model gets the same prompt version
+        to ensure fair comparison.
+        """
+        try:
+            # Build agent kwargs based on model type
+            agent_kwargs = {
+                "model_type": model_config.provider,
+                "max_iterations": max_iterations,
+                "verbose": False,
+            }
+            
+            # Use same prompt version as test run
+            if self.prompt_version_id:
+                agent_kwargs["prompt_version_id"] = self.prompt_version_id
+            elif self.prompt_name:
+                agent_kwargs["prompt_name"] = self.prompt_name
+                if self.prompt_version:
+                    agent_kwargs["prompt_version"] = self.prompt_version
+            
+            # Configure model-specific parameters
+            if model_config.provider == "local":
+                if model_config.model_path:
+                    agent_kwargs["model_path"] = model_config.model_path
+                if model_config.model_key:
+                    agent_kwargs["local_model"] = model_config.model_key
+            else:
+                # API-based models
+                model_kwargs = {}
+                if model_config.api_identifier:
+                    model_kwargs["model_name"] = model_config.api_identifier
+                if model_kwargs:
+                    agent_kwargs["model_kwargs"] = model_kwargs
+            
+            # Run agent
+            agent = ResearchAgent(**agent_kwargs)
+            result: ResearchAgentResult = agent.research_company(company_name)
+            
+            if not result.success or not result.company_info:
+                return None
+            
+            # Store in database
+            output = self._store_output(
+                session=session,
+                company_name=company_name,
+                result=result,
+                model_name=model_config.name,
+                model_provider=model_config.provider,
+                model_config_id=model_config.id,
+                test_run_id=test_run_id,
+            )
+            
+            session.commit()
+            return output
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Error running model {model_config.name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _get_fields_to_grade(self) -> List[str]:
+        """
+        Get list of all CompanyInfo fields to grade.
+        
+        Educational: This returns all fields from the CompanyInfo schema that
+        should be evaluated. Required fields (company_name, industry, etc.) are
+        typically weighted more heavily in accuracy calculations.
+        """
+        return [
+            "company_name_field",  # Note: stored as company_name_field in DB
+            "industry",
+            "company_size",
+            "headquarters",
+            "founded",
+            "description",
+            "website",
+            "products",
+            "competitors",
+            "revenue",
+            "funding_stage",
+            "growth_stage",
+            "industry_vertical",
+            "sub_industry_vertical",
+            "financial_health",
+            "business_and_technology_adoption",
+            "primary_workload_philosophy",
+            "buyer_journey",
+            "budget_maturity",
+            "cloud_spend_capacity",
+            "procurement_process",
+            "key_personas",
+        ]
+    
+    def _grade_field(
+        self,
+        flash_model: Any,
+        field_name: str,
+        correct_value: Any,
+        actual_value: Any,
+        grading_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Grade a single field using Gemini Flash.
+        
+        Educational: This demonstrates how to use an LLM (Gemini Flash) to grade
+        another LLM's output. The grading prompt asks for structured output with
+        score, match type, confidence, and explanation.
+        
+        Args:
+            flash_model: Initialized Gemini Flash chat model
+            field_name: Name of the field being graded
+            correct_value: Value from Gemini Pro (ground truth)
+            actual_value: Value from the model being graded
+            grading_prompt: Optional custom grading prompt (uses active version if not provided)
+            
+        Returns:
+            Dict with keys: score, match_type, confidence, explanation, grading_response
+        """
+        from langchain_core.messages import HumanMessage
+        import re
+        
+        # Handle None values
+        if correct_value is None:
+            correct_value_str = "None"
+        elif isinstance(correct_value, list):
+            correct_value_str = ", ".join(str(v) for v in correct_value) if correct_value else "None"
+        else:
+            correct_value_str = str(correct_value)
+        
+        if actual_value is None:
+            actual_value_str = "None"
+        elif isinstance(actual_value, list):
+            actual_value_str = ", ".join(str(v) for v in actual_value) if actual_value else "None"
+        else:
+            actual_value_str = str(actual_value)
+        
+        # Load grading prompt from database if not provided
+        if not grading_prompt:
+            grading_prompt_version = GradingPromptManager.get_active_version()
+            if not grading_prompt_version:
+                raise ValueError("No active grading prompt version found. Initialize using initialize_prompts.py")
+            grading_prompt = grading_prompt_version.prompt_template
+        
+        # Format the prompt with field values
+        formatted_prompt = grading_prompt.format(
+            field_name=field_name,
+            correct_value=correct_value_str,
+            actual_value=actual_value_str,
+        )
+        
+        try:
+            # Call Gemini Flash
+            response = flash_model.invoke([HumanMessage(content=formatted_prompt)])
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Parse structured response
+            score_match = re.search(r'SCORE:\s*(\d+(?:\.\d+)?)', response_text, re.IGNORECASE)
+            match_type_match = re.search(r'MATCH_TYPE:\s*(exact|semantic|partial|none)', response_text, re.IGNORECASE)
+            confidence_match = re.search(r'CONFIDENCE:\s*([01]\.?\d*)', response_text, re.IGNORECASE)
+            explanation_match = re.search(r'EXPLANATION:\s*(.+?)(?:\n|$)', response_text, re.IGNORECASE | re.DOTALL)
+            
+            score = float(score_match.group(1)) if score_match else 0.0
+            match_type = match_type_match.group(1).lower() if match_type_match else "none"
+            confidence = float(confidence_match.group(1)) if confidence_match else 0.5
+            explanation = explanation_match.group(1).strip() if explanation_match else "Could not parse explanation"
+            
+            # Clamp values to valid ranges
+            score = max(0.0, min(100.0, score))
+            confidence = max(0.0, min(1.0, confidence))
+            
+            return {
+                "score": score,
+                "match_type": match_type,
+                "confidence": confidence,
+                "explanation": explanation,
+                "grading_response": response_text,
+            }
+            
+        except Exception as e:
+            # Handle parse errors or API errors
+            return {
+                "score": 0.0,
+                "match_type": "none",
+                "confidence": 0.0,
+                "explanation": f"Error grading field: {str(e)}",
+                "grading_response": "",
+            }
+    
+    def _grade_output_with_flash(
+        self,
+        session: Session,
+        gemini_pro_output: LLMOutputValidation,
+        other_output: LLMOutputValidation,
+        company_name: str,
+        test_run_id: int,
+    ) -> Optional[LLMOutputValidationResult]:
+        """
+        Grade another model's output using Gemini Flash field-by-field.
+        
+        Educational: This demonstrates the complete grading workflow:
+        1. Load grading prompt from database (versioned)
+        2. Grade each field individually
+        3. Calculate aggregate scores (overall, required fields, weighted)
+        4. Store results in database with full metadata
+        
+        Args:
+            session: Database session
+            gemini_pro_output: Ground truth output from Gemini Pro
+            other_output: Output from model being graded
+            company_name: Company name for this test
+            test_run_id: Test run ID
+            
+        Returns:
+            LLMOutputValidationResult object if successful, None otherwise
+        """
+        from src.models.model_factory import get_chat_model
+        
+        try:
+            # Get fields to grade
+            fields_to_grade = self._get_fields_to_grade()
+            
+            # Initialize Gemini Flash model
+            flash_model = get_chat_model(
+                model_type="gemini",
+                model_kwargs={"model_name": self.gemini_flash_model_name},
+            )
+            
+            # Load grading prompt version
+            grading_prompt_version = GradingPromptManager.get_active_version(session=session)
+            if not grading_prompt_version:
+                raise ValueError("No active grading prompt version found")
+            
+            grading_prompt_template = grading_prompt_version.prompt_template
+            
+            # Grade each field
+            field_scores = {}
+            grading_responses = []
+            total_grading_input_tokens = 0
+            total_grading_output_tokens = 0
+            
+            for field_name in fields_to_grade:
+                correct_value = getattr(gemini_pro_output, field_name, None)
+                actual_value = getattr(other_output, field_name, None)
+                
+                field_result = self._grade_field(
+                    flash_model=flash_model,
+                    field_name=field_name,
+                    correct_value=correct_value,
+                    actual_value=actual_value,
+                    grading_prompt=grading_prompt_template,
+                )
+                
+                # Store field result
+                field_scores[field_name] = {
+                    "score": field_result["score"],
+                    "match_type": field_result["match_type"],
+                    "explanation": field_result["explanation"],
+                    "confidence": field_result["confidence"],
+                }
+                
+                grading_responses.append({
+                    "field": field_name,
+                    "response": field_result["grading_response"],
+                })
+                
+                # Try to extract token usage from response metadata
+                # This is provider-dependent and may not always be available
+                if hasattr(flash_model, 'get_num_tokens_from_messages'):
+                    try:
+                        # Estimate tokens (rough approximation)
+                        response_text = field_result["grading_response"]
+                        total_grading_output_tokens += len(response_text.split()) * 1.3  # Rough estimate
+                        total_grading_input_tokens += len(grading_prompt_template.split()) * 1.3
+                    except:
+                        pass
+            
+            # Calculate aggregate scores
+            all_scores = [r["score"] for r in field_scores.values()]
+            overall_accuracy = sum(all_scores) / len(all_scores) if all_scores else 0.0
+            
+            # Required fields (core company info)
+            required_fields = ["company_name_field", "industry", "company_size", "headquarters", "founded"]
+            required_scores = [field_scores[f]["score"] for f in required_fields if f in field_scores]
+            required_fields_accuracy = sum(required_scores) / len(required_scores) if required_scores else 0.0
+            
+            # Optional fields (all others)
+            optional_fields = [f for f in fields_to_grade if f not in required_fields]
+            optional_scores = [field_scores[f]["score"] for f in optional_fields if f in field_scores]
+            optional_fields_accuracy = sum(optional_scores) / len(optional_scores) if optional_scores else 0.0
+            
+            # Weighted accuracy (critical fields count 2x)
+            critical_fields = ["industry", "company_size", "headquarters"]
+            weighted_scores = []
+            for field_name, result in field_scores.items():
+                weight = 2.0 if field_name in critical_fields else 1.0
+                weighted_scores.extend([result["score"]] * int(weight))
+            weighted_accuracy = sum(weighted_scores) / len(weighted_scores) if weighted_scores else 0.0
+            
+            # Calculate grading cost
+            total_grading_tokens = total_grading_input_tokens + total_grading_output_tokens
+            grading_cost = self._calculate_cost(
+                model_provider="gemini",
+                model_name=self.gemini_flash_model_name,
+                input_tokens=int(total_grading_input_tokens),
+                output_tokens=int(total_grading_output_tokens),
+            ) if total_grading_input_tokens and total_grading_output_tokens else None
+            
+            # Store result
+            validation_result = LLMOutputValidationResult(
+                output_id=other_output.id,
+                test_run_id=test_run_id,
+                test_name=self.test_name,
+                company_name=company_name,
+                model_name=other_output.model_name,
+                model_provider=other_output.model_provider,
+                field_accuracy_scores=field_scores,
+                overall_accuracy=overall_accuracy,
+                required_fields_accuracy=required_fields_accuracy,
+                optional_fields_accuracy=optional_fields_accuracy,
+                weighted_accuracy=weighted_accuracy,
+                graded_by_model=self.gemini_flash_model_name,
+                grading_prompt_version_id=grading_prompt_version.id,
+                grading_prompt=grading_prompt_template,
+                grading_response=str(grading_responses),
+                grading_input_tokens=int(total_grading_input_tokens) if total_grading_input_tokens else None,
+                grading_output_tokens=int(total_grading_output_tokens) if total_grading_output_tokens else None,
+                grading_total_tokens=int(total_grading_tokens) if total_grading_tokens else None,
+                grading_cost_usd=grading_cost,
+            )
+            
+            session.add(validation_result)
+            session.commit()
+            
+            return validation_result
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Error grading output: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
     def run_test(
         self,
         company_name: str,
@@ -460,6 +862,37 @@ class LLMOutputValidationRunner:
                     "test_run_id": test_run.id,
                 }
             
+            # Step 3: Run other models (Stage 9)
+            other_outputs = []
+            other_models_to_test = other_models or self._get_other_models(session=session)
+            
+            # Clean up old outputs for this test run (excluding Gemini Pro)
+            self._delete_other_model_outputs(
+                session=session,
+                company_name=company_name,
+                test_run_id=test_run.id,
+            )
+            
+            # Run each model
+            for model_config in other_models_to_test:
+                # Skip Gemini Pro (it's already ground truth)
+                if (model_config.provider == "gemini" and 
+                    model_config.api_identifier == self.gemini_pro_model_name):
+                    continue
+                
+                output = self._run_model_and_store(
+                    session=session,
+                    company_name=company_name,
+                    test_run_id=test_run.id,
+                    model_config=model_config,
+                    max_iterations=max_iterations,
+                )
+                
+                if output:
+                    other_outputs.append(output)
+            
+            session.commit()
+            
             return {
                 "success": True,
                 "test_run_id": test_run.id,
@@ -467,6 +900,8 @@ class LLMOutputValidationRunner:
                 "company_name": company_name,
                 "gemini_pro_output_id": gemini_pro_output.id,
                 "ground_truth_status": gemini_pro_output.ground_truth_status,
+                "other_outputs_count": len(other_outputs),
+                "other_output_ids": [o.id for o in other_outputs],
             }
             
         finally:
