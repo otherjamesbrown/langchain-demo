@@ -48,29 +48,80 @@ def validate_required_fields(company_info: CompanyInfo):
     """Validate that all required fields are present and correct."""
     errors = []
     warnings = []
+    correct_fields = []
+    incorrect_fields = []
+    blank_fields = []
     
-    if not company_info.company_name:
+    # Expected values
+    expected_values = {
+        "company_name": "Bitmovin",
+        "industry": ["video", "streaming"],
+        "company_size": ["51", "200"],
+        "headquarters": ["san francisco", "california"],
+        "founded": 2013,
+    }
+    
+    # Check company_name
+    if not company_info.company_name or not company_info.company_name.strip():
+        blank_fields.append(("company_name", "missing or empty"))
         errors.append("company_name is missing")
     elif "bitmovin" not in company_info.company_name.lower():
+        incorrect_fields.append(("company_name", f"expected 'Bitmovin', got '{company_info.company_name}'"))
         warnings.append(f"company_name mismatch: expected 'Bitmovin', got '{company_info.company_name}'")
+    else:
+        correct_fields.append("company_name")
     
+    # Check industry
     if not company_info.industry or not company_info.industry.strip():
+        blank_fields.append(("industry", "missing or empty"))
         errors.append("industry is missing or empty")
-    elif "video" not in company_info.industry.lower() and "streaming" not in company_info.industry.lower():
-        warnings.append(f"industry may be incorrect: expected video/streaming related, got '{company_info.industry}'")
+    else:
+        industry_lower = company_info.industry.lower()
+        if any(keyword in industry_lower for keyword in expected_values["industry"]):
+            correct_fields.append("industry")
+        else:
+            incorrect_fields.append(("industry", f"expected video/streaming related, got '{company_info.industry}'"))
+            warnings.append(f"industry may be incorrect: expected video/streaming related, got '{company_info.industry}'")
     
+    # Check company_size
     if not company_info.company_size or not company_info.company_size.strip():
+        blank_fields.append(("company_size", "missing or empty"))
         errors.append("company_size is missing or empty")
+    else:
+        size_str = company_info.company_size
+        if any(keyword in size_str for keyword in expected_values["company_size"]):
+            correct_fields.append("company_size")
+        else:
+            incorrect_fields.append(("company_size", f"expected 51-200 range, got '{company_info.company_size}'"))
     
+    # Check headquarters
     if not company_info.headquarters or not company_info.headquarters.strip():
+        blank_fields.append(("headquarters", "missing or empty"))
         errors.append("headquarters is missing or empty")
+    else:
+        hq_lower = company_info.headquarters.lower()
+        if any(keyword in hq_lower for keyword in expected_values["headquarters"]):
+            correct_fields.append("headquarters")
+        else:
+            incorrect_fields.append(("headquarters", f"expected San Francisco, California, got '{company_info.headquarters}'"))
     
+    # Check founded
     if company_info.founded is None:
+        blank_fields.append(("founded", "missing"))
         errors.append("founded year is missing")
-    elif company_info.founded != 2013:
+    elif company_info.founded != expected_values["founded"]:
+        incorrect_fields.append(("founded", f"expected 2013, got {company_info.founded}"))
         warnings.append(f"founded year mismatch: expected 2013, got {company_info.founded}")
+    else:
+        correct_fields.append("founded")
     
-    return {"errors": errors, "warnings": warnings}
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "correct": correct_fields,
+        "incorrect": incorrect_fields,
+        "blank": blank_fields,
+    }
 
 OPTIONAL_FIELDS = [
     "growth_stage", "industry_vertical", "sub_industry_vertical",
@@ -310,6 +361,40 @@ if st.button("🚀 Run Tests", type="primary"):
                             for warning in validation["warnings"]:
                                 st.warning(f"⚠️ {warning}")
                         
+                        # Field categorization display
+                        st.markdown("#### Field Validation")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            if validation["correct"]:
+                                st.success(f"✅ **Correct ({len(validation['correct'])})**")
+                                for field in validation["correct"]:
+                                    value = getattr(result.company_info, field, None)
+                                    if isinstance(value, str):
+                                        st.text(f"  • {field}: {value[:50]}")
+                                    else:
+                                        st.text(f"  • {field}: {value}")
+                            else:
+                                st.info("✅ **Correct: 0**")
+                        
+                        with col2:
+                            if validation["incorrect"]:
+                                st.warning(f"⚠️ **Incorrect ({len(validation['incorrect'])})**")
+                                for field, reason in validation["incorrect"]:
+                                    value = getattr(result.company_info, field, None)
+                                    st.text(f"  • {field}: {value}")
+                                    st.caption(f"    ({reason})")
+                            else:
+                                st.info("⚠️ **Incorrect: 0**")
+                        
+                        with col3:
+                            if validation["blank"]:
+                                st.error(f"❌ **Blank/Missing ({len(validation['blank'])})**")
+                                for field, reason in validation["blank"]:
+                                    st.text(f"  • {field}: {reason}")
+                            else:
+                                st.info("❌ **Blank/Missing: 0**")
+                        
                         st.metric("Optional Fields", f"{len(optional_validation['present_fields'])}/10")
                         st.metric("Execution Time", f"{result.execution_time_seconds:.2f}s")
                         
@@ -375,8 +460,155 @@ if st.button("🚀 Run Tests", type="primary"):
     st.subheader("📊 Test Summary")
     
     if results:
-        df = pd.DataFrame(results)
-        st.dataframe(df, use_container_width=True)
+        # Get detailed field information for each test
+        summary_data = []
+        for result_entry in results:
+            # Get the test execution from database for field details
+            test_exec = get_test_executions(
+                test_name="bitmovin_research",
+                test_company="BitMovin",
+                model_provider=result_entry["provider"],
+                limit=1,
+                session=session,
+            )
+            
+            if test_exec and test_exec[0].extracted_company_info:
+                ci = test_exec[0].extracted_company_info
+                # Categorize fields
+                correct = []
+                incorrect = []
+                blank = []
+                
+                # Check each required field
+                required_fields = ["company_name", "industry", "company_size", "headquarters", "founded"]
+                for field in required_fields:
+                    value = ci.get(field)
+                    
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                        blank.append(field)
+                    elif field == "company_name" and "bitmovin" in str(value).lower():
+                        correct.append(field)
+                    elif field == "company_name":
+                        incorrect.append(field)
+                    elif field == "industry" and ("video" in str(value).lower() or "streaming" in str(value).lower()):
+                        correct.append(field)
+                    elif field == "industry":
+                        incorrect.append(field)
+                    elif field == "company_size" and ("51" in str(value) or "200" in str(value)):
+                        correct.append(field)
+                    elif field == "company_size":
+                        incorrect.append(field)
+                    elif field == "headquarters" and ("san francisco" in str(value).lower() or "california" in str(value).lower()):
+                        correct.append(field)
+                    elif field == "headquarters":
+                        incorrect.append(field)
+                    elif field == "founded" and value == 2013:
+                        correct.append(field)
+                    elif field == "founded":
+                        incorrect.append(field)
+                
+                summary_data.append({
+                    "Model": result_entry["model"],
+                    "Provider": result_entry["provider"],
+                    "Success": "✅" if result_entry["success"] else "❌",
+                    "Correct Fields": f"{len(correct)}/5",
+                    "Incorrect Fields": len(incorrect),
+                    "Blank Fields": len(blank),
+                    "Optional Fields": f"{result_entry['optional_fields']}/10",
+                    "Time": f"{result_entry['time']:.2f}s",
+                })
+            else:
+                summary_data.append({
+                    "Model": result_entry["model"],
+                    "Provider": result_entry["provider"],
+                    "Success": "❌",
+                    "Correct Fields": "0/5",
+                    "Incorrect Fields": 0,
+                    "Blank Fields": 5,
+                    "Optional Fields": "0/10",
+                    "Time": f"{result_entry['time']:.2f}s",
+                })
+        
+        if summary_data:
+            df = pd.DataFrame(summary_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Show detailed field breakdown for each model
+            for result_entry in results:
+                test_exec = get_test_executions(
+                    test_name="bitmovin_research",
+                    test_company="BitMovin",
+                    model_provider=result_entry["provider"],
+                    limit=1,
+                    session=session,
+                )
+                
+                if test_exec and test_exec[0].extracted_company_info:
+                    with st.expander(f"Field Details: {result_entry['model']}"):
+                        ci = test_exec[0].extracted_company_info
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.markdown("**✅ Correct Fields**")
+                            correct_fields = []
+                            if ci.get("company_name") and "bitmovin" in str(ci.get("company_name", "")).lower():
+                                correct_fields.append(("company_name", ci.get("company_name")))
+                            if ci.get("industry") and ("video" in str(ci.get("industry", "")).lower() or "streaming" in str(ci.get("industry", "")).lower()):
+                                correct_fields.append(("industry", ci.get("industry")))
+                            if ci.get("company_size") and ("51" in str(ci.get("company_size", "")) or "200" in str(ci.get("company_size", ""))):
+                                correct_fields.append(("company_size", ci.get("company_size")))
+                            if ci.get("headquarters") and ("san francisco" in str(ci.get("headquarters", "")).lower() or "california" in str(ci.get("headquarters", "")).lower()):
+                                correct_fields.append(("headquarters", ci.get("headquarters")))
+                            if ci.get("founded") == 2013:
+                                correct_fields.append(("founded", ci.get("founded")))
+                            
+                            if correct_fields:
+                                for field, value in correct_fields:
+                                    st.text(f"• {field}: {value}")
+                            else:
+                                st.text("None")
+                        
+                        with col2:
+                            st.markdown("**⚠️ Incorrect Fields**")
+                            incorrect_fields = []
+                            if ci.get("company_name") and "bitmovin" not in str(ci.get("company_name", "")).lower():
+                                incorrect_fields.append(("company_name", ci.get("company_name"), "Expected 'Bitmovin'"))
+                            if ci.get("industry") and "video" not in str(ci.get("industry", "")).lower() and "streaming" not in str(ci.get("industry", "")).lower():
+                                incorrect_fields.append(("industry", ci.get("industry"), "Expected video/streaming"))
+                            if ci.get("company_size") and "51" not in str(ci.get("company_size", "")) and "200" not in str(ci.get("company_size", "")):
+                                incorrect_fields.append(("company_size", ci.get("company_size"), "Expected 51-200 range"))
+                            if ci.get("headquarters") and "san francisco" not in str(ci.get("headquarters", "")).lower() and "california" not in str(ci.get("headquarters", "")).lower():
+                                incorrect_fields.append(("headquarters", ci.get("headquarters"), "Expected San Francisco, CA"))
+                            if ci.get("founded") and ci.get("founded") != 2013:
+                                incorrect_fields.append(("founded", ci.get("founded"), "Expected 2013"))
+                            
+                            if incorrect_fields:
+                                for field, value, expected in incorrect_fields:
+                                    st.text(f"• {field}: {value}")
+                                    st.caption(f"  ({expected})")
+                            else:
+                                st.text("None")
+                        
+                        with col3:
+                            st.markdown("**❌ Blank/Missing Fields**")
+                            blank_fields = []
+                            if not ci.get("company_name") or not str(ci.get("company_name", "")).strip():
+                                blank_fields.append("company_name")
+                            if not ci.get("industry") or not str(ci.get("industry", "")).strip():
+                                blank_fields.append("industry")
+                            if not ci.get("company_size") or not str(ci.get("company_size", "")).strip():
+                                blank_fields.append("company_size")
+                            if not ci.get("headquarters") or not str(ci.get("headquarters", "")).strip():
+                                blank_fields.append("headquarters")
+                            if ci.get("founded") is None:
+                                blank_fields.append("founded")
+                            
+                            if blank_fields:
+                                for field in blank_fields:
+                                    st.text(f"• {field}")
+                            else:
+                                st.text("None")
         
         success_count = sum(1 for r in results if r["success"])
         st.metric("Success Rate", f"{success_count}/{len(results)}")
