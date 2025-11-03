@@ -17,8 +17,10 @@ This document defines the core architectural principles and conventions that gui
 - ✅ **DO**: Store model paths, names, and metadata in `model_configurations` table
 - ✅ **DO**: Use `get_default_model_configuration()` to retrieve active models
 - ✅ **DO**: Fall back to environment variables only if database has no configuration
+- ✅ **DO**: Use `get_available_models()` from `src.utils.model_availability` to check which models are usable
 - ❌ **DON'T**: Hardcode model paths or rely solely on environment variables
 - ❌ **DON'T**: Read model configuration from `.env` files as primary source
+- ❌ **DON'T**: Duplicate model availability validation logic (package checks, API key validation, file existence)
 
 **Priority Order** (implemented in `src/models/model_factory.py`):
 1. Database (`get_default_model_configuration()`)
@@ -199,6 +201,31 @@ model_path = os.getenv("MODEL_PATH")  # Skips database!
 - ❌ **DON'T**: Use relative imports across packages
 - ❌ **DON'T**: Duplicate code across modules
 
+#### Shared Utilities
+- ✅ **DO**: Use shared utilities from `src/utils/` for common operations
+  - `model_availability.py` - Model validation and availability checking
+  - `model_factory.py` - Model creation and initialization
+  - `logging.py` - Centralized logging configuration
+- ✅ **DO**: Check `src/utils/` before implementing new validation logic
+- ❌ **DON'T**: Duplicate validation logic (package checks, API key validation, file existence)
+- ❌ **DON'T**: Create new utility functions without checking if similar functionality exists
+
+**Example - Model Availability**:
+```python
+# ✅ CORRECT: Use shared utility
+from src.utils.model_availability import get_available_models
+
+models = get_available_models(provider_filter=["gemini"])
+
+# ❌ WRONG: Duplicate validation logic
+def check_provider_packages_installed(provider: str) -> bool:
+    # ... 40 lines of duplicate code ...
+```
+
+**Reference**: 
+- `src/utils/model_availability.py` - Shared model availability utilities
+- `docs/implemented/MODEL_AVAILABILITY_UTILITIES.md` - Utilities documentation
+
 **Reference**: 
 - `.cursorrules` - File organization guidelines
 - `PROJECT_STRUCTURE.md` - Directory layout
@@ -304,8 +331,9 @@ When establishing a new architectural principle:
 ## Related Documentation
 
 - `docs/ARCHITECTURE.md` - System architecture overview
-- `docs/DATABASE_CONSOLIDATION.md` - Database-first approach details
-- `docs/MODEL_CONFIGURATION_STORAGE.md` - Model configuration storage
+- `docs/implemented/DATABASE_CONSOLIDATION.md` - Database-first approach details
+- `docs/implemented/MODEL_CONFIGURATION_STORAGE.md` - Model configuration storage
+- `docs/implemented/MODEL_AVAILABILITY_UTILITIES.md` - Shared model availability utilities
 - `.cursorrules` - Code style and conventions
 - `PROJECT_STRUCTURE.md` - Directory organization
 
