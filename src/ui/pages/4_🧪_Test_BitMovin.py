@@ -547,67 +547,131 @@ if st.button("🚀 Run Tests", type="primary"):
                     with st.expander(f"Field Details: {result_entry['model']}"):
                         ci = test_exec[0].extracted_company_info
                         
+                        # Required Fields Section
+                        st.markdown("### Required Fields (5)")
                         col1, col2, col3 = st.columns(3)
                         
                         with col1:
                             st.markdown("**✅ Correct Fields**")
-                            correct_fields = []
+                            correct_required = []
                             if ci.get("company_name") and "bitmovin" in str(ci.get("company_name", "")).lower():
-                                correct_fields.append(("company_name", ci.get("company_name")))
+                                correct_required.append(("company_name", ci.get("company_name")))
                             if ci.get("industry") and ("video" in str(ci.get("industry", "")).lower() or "streaming" in str(ci.get("industry", "")).lower()):
-                                correct_fields.append(("industry", ci.get("industry")))
+                                correct_required.append(("industry", ci.get("industry")))
                             if ci.get("company_size") and ("51" in str(ci.get("company_size", "")) or "200" in str(ci.get("company_size", ""))):
-                                correct_fields.append(("company_size", ci.get("company_size")))
+                                correct_required.append(("company_size", ci.get("company_size")))
                             if ci.get("headquarters") and ("san francisco" in str(ci.get("headquarters", "")).lower() or "california" in str(ci.get("headquarters", "")).lower()):
-                                correct_fields.append(("headquarters", ci.get("headquarters")))
+                                correct_required.append(("headquarters", ci.get("headquarters")))
                             if ci.get("founded") == 2013:
-                                correct_fields.append(("founded", ci.get("founded")))
+                                correct_required.append(("founded", ci.get("founded")))
                             
-                            if correct_fields:
-                                for field, value in correct_fields:
+                            if correct_required:
+                                st.text(f"({len(correct_required)}/5)")
+                                for field, value in correct_required:
                                     st.text(f"• {field}: {value}")
                             else:
+                                st.text("(0/5)")
                                 st.text("None")
                         
                         with col2:
                             st.markdown("**⚠️ Incorrect Fields**")
-                            incorrect_fields = []
+                            incorrect_required = []
                             if ci.get("company_name") and "bitmovin" not in str(ci.get("company_name", "")).lower():
-                                incorrect_fields.append(("company_name", ci.get("company_name"), "Expected 'Bitmovin'"))
+                                incorrect_required.append(("company_name", ci.get("company_name"), "Expected 'Bitmovin'"))
                             if ci.get("industry") and "video" not in str(ci.get("industry", "")).lower() and "streaming" not in str(ci.get("industry", "")).lower():
-                                incorrect_fields.append(("industry", ci.get("industry"), "Expected video/streaming"))
+                                incorrect_required.append(("industry", ci.get("industry"), "Expected video/streaming"))
                             if ci.get("company_size") and "51" not in str(ci.get("company_size", "")) and "200" not in str(ci.get("company_size", "")):
-                                incorrect_fields.append(("company_size", ci.get("company_size"), "Expected 51-200 range"))
+                                incorrect_required.append(("company_size", ci.get("company_size"), "Expected 51-200 range"))
                             if ci.get("headquarters") and "san francisco" not in str(ci.get("headquarters", "")).lower() and "california" not in str(ci.get("headquarters", "")).lower():
-                                incorrect_fields.append(("headquarters", ci.get("headquarters"), "Expected San Francisco, CA"))
+                                incorrect_required.append(("headquarters", ci.get("headquarters"), "Expected San Francisco, CA"))
                             if ci.get("founded") and ci.get("founded") != 2013:
-                                incorrect_fields.append(("founded", ci.get("founded"), "Expected 2013"))
+                                incorrect_required.append(("founded", ci.get("founded"), "Expected 2013"))
                             
-                            if incorrect_fields:
-                                for field, value, expected in incorrect_fields:
+                            if incorrect_required:
+                                st.text(f"({len(incorrect_required)})")
+                                for field, value, expected in incorrect_required:
                                     st.text(f"• {field}: {value}")
                                     st.caption(f"  ({expected})")
                             else:
+                                st.text("(0)")
                                 st.text("None")
                         
                         with col3:
                             st.markdown("**❌ Blank/Missing Fields**")
-                            blank_fields = []
+                            blank_required = []
                             if not ci.get("company_name") or not str(ci.get("company_name", "")).strip():
-                                blank_fields.append("company_name")
+                                blank_required.append("company_name")
                             if not ci.get("industry") or not str(ci.get("industry", "")).strip():
-                                blank_fields.append("industry")
+                                blank_required.append("industry")
                             if not ci.get("company_size") or not str(ci.get("company_size", "")).strip():
-                                blank_fields.append("company_size")
+                                blank_required.append("company_size")
                             if not ci.get("headquarters") or not str(ci.get("headquarters", "")).strip():
-                                blank_fields.append("headquarters")
+                                blank_required.append("headquarters")
                             if ci.get("founded") is None:
-                                blank_fields.append("founded")
+                                blank_required.append("founded")
                             
-                            if blank_fields:
-                                for field in blank_fields:
+                            if blank_required:
+                                st.text(f"({len(blank_required)})")
+                                for field in blank_required:
                                     st.text(f"• {field}")
                             else:
+                                st.text("(0)")
+                                st.text("None")
+                        
+                        # Optional Fields Section
+                        st.markdown("---")
+                        st.markdown("### Optional Fields (10)")
+                        col4, col5, col6 = st.columns(3)
+                        
+                        # Get list of optional fields that were actually present in the test
+                        optional_fields_present = test_exec[0].optional_fields_present or []
+                        
+                        with col4:
+                            st.markdown("**✅ Present Fields**")
+                            if optional_fields_present:
+                                st.text(f"({len(optional_fields_present)}/10)")
+                                for field_name in optional_fields_present:
+                                    value = ci.get(field_name)
+                                    if value is not None:
+                                        if isinstance(value, str):
+                                            display_value = value[:50] + "..." if len(value) > 50 else value
+                                        elif isinstance(value, list):
+                                            display_value = ", ".join(str(v) for v in value[:3])
+                                            if len(value) > 3:
+                                                display_value += f" ... (+{len(value)-3} more)"
+                                        else:
+                                            display_value = str(value)
+                                        st.text(f"• {field_name}: {display_value}")
+                            else:
+                                st.text("(0/10)")
+                                st.text("None")
+                        
+                        with col5:
+                            st.markdown("**⚠️ Incorrect Fields**")
+                            # For optional fields, we consider them incorrect if they exist but have invalid values
+                            # Since optional fields don't have strict validation, this would be empty
+                            # unless we want to validate against specific expected values
+                            st.text("(0)")
+                            st.text("N/A - Optional fields")
+                            st.caption("Optional fields are not validated")
+                        
+                        with col6:
+                            st.markdown("**❌ Blank/Missing Fields**")
+                            # Get all optional field names
+                            all_optional_fields = [
+                                "growth_stage", "industry_vertical", "sub_industry_vertical",
+                                "financial_health", "business_and_technology_adoption",
+                                "primary_workload_philosophy", "buyer_journey",
+                                "budget_maturity", "cloud_spend_capacity", "procurement_process",
+                            ]
+                            missing_optional = [field for field in all_optional_fields if field not in optional_fields_present]
+                            
+                            if missing_optional:
+                                st.text(f"({len(missing_optional)})")
+                                for field in missing_optional:
+                                    st.text(f"• {field}")
+                            else:
+                                st.text("(0)")
                                 st.text("None")
         
         success_count = sum(1 for r in results if r["success"])
