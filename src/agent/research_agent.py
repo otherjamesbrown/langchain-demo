@@ -30,7 +30,6 @@ from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddlewar
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
 from langchain.agents.middleware.types import ToolCallRequest
-from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
@@ -43,6 +42,7 @@ from src.models.local_registry import (  # type: ignore[import]
     get_local_model_config,
     guess_local_model_key,
 )
+from src.models.structured_output import select_structured_output_strategy  # type: ignore[import]
 from src.tools.models import CompanyInfo
 from src.tools.web_search import TOOLS
 
@@ -295,10 +295,18 @@ class ResearchAgent:
                 self._step_tracker.last_run_iterations
                 or self._step_tracker.current_iteration_count
             )
+            # Log the full exception for debugging, especially for remote models
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Agent execution failed for {self.model_type}: {exc}\n"
+                f"{traceback.format_exc()}"
+            )
             return ResearchAgentResult(
                 company_name=company_name,
                 success=False,
-                raw_output=str(exc),
+                raw_output=f"Agent execution error: {exc}",
                 execution_time_seconds=execution_time,
                 iterations=iterations,
                 model_input=model_input_payload,
@@ -316,7 +324,22 @@ class ResearchAgent:
         final_message = _extract_final_ai_message(agent_output.get("messages", []))
         raw_output = _message_to_text(final_message) if final_message else ""
 
-        company_info = self._parse_company_info(agent_output.get("structured_response"), raw_output, company_name)
+        # Extract structured response - ProviderStrategy returns it in 'structured_response' key
+        structured_response = agent_output.get("structured_response")
+        
+        # Debug logging for structured output issues
+        if structured_response is None and self.model_type != "local":
+            # With ProviderStrategy, structured_response should always be present
+            # Log what we got instead for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Structured response is None for {self.model_type} model. "
+                f"Agent output keys: {list(agent_output.keys())}. "
+                f"Raw output length: {len(raw_output)}"
+            )
+
+        company_info = self._parse_company_info(structured_response, raw_output, company_name)
         success = company_info is not None
 
         # Final diagnostic logging
@@ -399,23 +422,37 @@ class ResearchAgent:
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
         ])
 
-        # Structured output strategies (LangChain v1):
-        # - ToolStrategy: Requires tool_choice parameter (NOT supported by ChatLlamaCpp) ❌
-        # - ProviderStrategy: Native structured output (only OpenAI, Anthropic, Gemini) ✅
+        # Structured output strategy selection:
+        # Uses centralized selector to determine the best strategy based on model capabilities.
+        # See src.models.structured_output for details on strategy selection logic.
         #
-        # ChatLlamaCpp limitation discovered:
-        # - Supports tool calling ✅
-        # - Does NOT support tool_choice parameter ❌
-        # - Therefore ToolStrategy fails with: "tool_choice='any' was specified..."
+        # Strategy types:
+        # - ProviderStrategy: Native structured output (GPT-4o, Claude 3, Gemini)
+        # - ToolStrategy: Artificial tool calling (GPT-4o-mini, models without native support)
+        # - None: No structured output (ChatLlamaCpp - doesn't support tool_choice parameter)
         #
-        # Solution: Use structured output only for remote models, rely on prompts + middleware for local
-        if self.model_type == "local":
-            # Local models: No structured output (ChatLlamaCpp lacks tool_choice support)
-            # Rely on enhanced prompts + minimum iteration middleware instead
-            response_format = None
-        else:
-            # Remote models: Use ProviderStrategy (native structured output)
-            response_format = ProviderStrategy(CompanyInfo)
+        # The selector handles model-specific capabilities automatically.
+        # Try to extract model name from model_kwargs or database configuration
+        model_name = None
+        if isinstance(self.model_kwargs, dict):
+            model_name = self.model_kwargs.get("model_name")
+        
+        # If not in kwargs, try to get from database configuration
+        if not model_name and self.model_type != "local":
+            try:
+                from src.database.operations import get_default_model_configuration
+                db_model = get_default_model_configuration()
+                if db_model and db_model.provider == self.model_type and db_model.api_identifier:
+                    model_name = db_model.api_identifier
+            except Exception:
+                pass  # Fallback to model introspection
+        
+        response_format = select_structured_output_strategy(
+            model=chat_model,
+            model_type=self.model_type,
+            schema=CompanyInfo,
+            model_name=model_name,
+        )
 
         return create_agent(
             model=chat_model,
@@ -607,8 +644,15 @@ class ResearchAgent:
             structured_response.setdefault("company_name", company_name)
             try:
                 return CompanyInfo.model_validate(structured_response)
-            except ValidationError:
-                pass
+            except ValidationError as e:
+                # Log validation errors for debugging, especially for remote models using ProviderStrategy
+                if self.model_type != "local":
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"CompanyInfo validation failed for {self.model_type}: {e}. "
+                        f"Received dict keys: {list(structured_response.keys())}"
+                    )
 
         try:
             candidate = json.loads(raw_output)
