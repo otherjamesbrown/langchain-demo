@@ -113,7 +113,7 @@ def test_phase2_multiple():
         models.append({"provider": "anthropic", "model": "claude-3-opus-20240229"})
     
     if os.getenv("GOOGLE_API_KEY"):
-        models.append({"provider": "gemini", "model": "gemini-pro"})
+        models.append({"provider": "gemini", "model": "gemini-flash-latest"})
     
     # Always include local if available
     models.append({"provider": "local", "model": "local-llm"})

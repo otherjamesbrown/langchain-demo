@@ -160,12 +160,12 @@ class TestRemoteLLMs:
         mock_instance = Mock()
         mock_gemini.return_value = mock_instance
 
-        llm = get_llm(model_type="gemini", model="gemini-pro")
+        llm = get_llm(model_type="gemini", model="gemini-flash-latest")
 
         mock_gemini.assert_called_once()
         call_kwargs = mock_gemini.call_args[1]
 
-        assert call_kwargs["model"] == "gemini-pro"
+        assert call_kwargs["model"] == "gemini-1.5-flash"
         assert call_kwargs["temperature"] == 0.7
         assert llm == mock_instance
 
@@ -242,7 +242,7 @@ class TestLLMIntegration:
     )
     def test_gemini_llm_invoke(self):
         """Test actual Gemini LLM invocation."""
-        llm = get_llm(model_type="gemini", model="gemini-pro")
+        llm = get_llm(model_type="gemini", model="gemini-flash-latest")
         response = llm.invoke("Say 'test successful' and nothing else.")
 
         assert response is not None

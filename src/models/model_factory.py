@@ -346,13 +346,14 @@ def _create_gemini_llm(temperature: float, **kwargs) -> BaseLanguageModel:
             "Google API key is required. Set GOOGLE_API_KEY environment variable"
         )
     
-    model_name = kwargs.get("model_name", os.getenv("GEMINI_MODEL", "gemini-pro"))
+    # Support both 'model' and 'model_name' kwargs for consistency
+    model_name = kwargs.get("model") or kwargs.get("model_name", os.getenv("GEMINI_MODEL", "gemini-flash-latest"))
     
     return ChatGoogleGenerativeAI(
         model=model_name,
         temperature=temperature,
         google_api_key=api_key,
-        **{k: v for k, v in kwargs.items() if k not in ["model_name"]}
+        **{k: v for k, v in kwargs.items() if k not in ["model", "model_name"]}
     )
 
 

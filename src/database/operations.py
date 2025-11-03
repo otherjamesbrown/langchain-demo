@@ -142,20 +142,20 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                 db_session.query(ModelConfiguration)
                 .filter(
                     ModelConfiguration.provider == "gemini",
-                    ModelConfiguration.api_identifier == "gemini-pro"
+                    ModelConfiguration.api_identifier == "gemini-flash-latest"
                 )
                 .first()
             )
             if existing_gemini_model is None:
                 db_session.add(
                     ModelConfiguration(
-                        name="Google Gemini Pro",
+                        name="Google Gemini Flash Latest",
                         provider="gemini",
-                        api_identifier="gemini-pro",
+                        api_identifier="gemini-flash-latest",
                         extra_metadata={
-                            "description": "Google Gemini Pro model via API",
+                            "description": "Google Gemini Flash Latest model via API",
                             "max_output_tokens": 8192,
-                            "context_window": 32768,
+                            "context_window": 1048576,
                         }
                     )
                 )
