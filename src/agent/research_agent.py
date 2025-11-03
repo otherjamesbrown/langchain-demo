@@ -285,7 +285,14 @@ class ResearchAgent:
             # to handle termination gracefully. LangGraph's default is 25, which
             # can be too low for complex research tasks. We set it to at least
             # 3x max_iterations or 50, whichever is higher.
-            recursion_limit = max(self.max_iterations * 3, 50)
+            # ToolStrategy models (e.g., Gemini) may need higher limits due to
+            # additional tool calls required for structured output.
+            base_limit = max(self.max_iterations * 3, 50)
+            # ToolStrategy adds extra iterations for structured output tool calls
+            if self.model_type == "gemini":
+                recursion_limit = base_limit * 2  # Gemini uses ToolStrategy
+            else:
+                recursion_limit = base_limit
             config = {"recursion_limit": recursion_limit}
             agent_output = self._agent.invoke(inputs, config=config)
         except Exception as exc:  # noqa: BLE001
