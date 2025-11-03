@@ -8,6 +8,7 @@ for company information, with support for result formatting and filtering.
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -15,6 +16,17 @@ import requests
 
 from src.tools.models import SearchResult
 from src.database.operations import save_search_history
+
+# Load environment variables from .env file if it exists
+# This ensures API keys are available when module is imported
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, will rely on environment variables only
+    pass
 
 
 class TavilySearchAPI:
