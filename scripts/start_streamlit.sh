@@ -64,7 +64,7 @@ fi
 # Load environment variables from .env file using python-dotenv
 if [ -f ".env" ]; then
     echo "   Loading environment variables from .env..."
-    $VENV_PYTHON -c "
+    cat > /tmp/load_env.py << 'ENDPYTHON'
 import os
 from dotenv import load_dotenv
 load_dotenv('.env')
@@ -76,10 +76,11 @@ with open('.env', 'r') as f:
             key, value = line.split('=', 1)
             env_vars[key.strip()] = value.strip()
 for key, value in env_vars.items():
-    print(f\"export {key}='{value}'\")
-" > /tmp/streamlit_env.sh
+    print("export {}='{}'".format(key, value))
+ENDPYTHON
+    $VENV_PYTHON /tmp/load_env.py > /tmp/streamlit_env.sh
     source /tmp/streamlit_env.sh
-    rm /tmp/streamlit_env.sh
+    rm /tmp/load_env.py /tmp/streamlit_env.sh
 fi
 
 # Start Streamlit
