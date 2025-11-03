@@ -63,7 +63,70 @@ The `-n` flag prevents SSH from reading from stdin (which prevents hanging). The
 ssh -n -i ~/.ssh/id_ed25519_langchain langchain@172.234.181.156 "cd ~/langchain-demo && (nohup bash scripts/start_streamlit.sh > /tmp/streamlit.log 2>&1 &); exit"
 ```
 
-## 4. Monitor logs (optional)
+## 4. Verify deployment
+
+Run these checks to ensure the system is functioning after deployment:
+
+### 4a. Check Streamlit process status
+
+```bash
+# Verify Streamlit is running on port 8501
+ssh linode-langchain-user "lsof -ti:8501"
+# Should output a process ID if running
+```
+
+### 4b. Check logs for errors
+
+```bash
+# View recent logs
+ssh linode-langchain-user "tail -50 /tmp/streamlit.log"
+
+# Check for specific errors
+ssh linode-langchain-user "grep -i 'error\|exception\|failed' /tmp/streamlit.log | tail -20"
+
+# Check for successful startup
+ssh linode-langchain-user "grep -i 'running\|started\|you can now view' /tmp/streamlit.log | tail -5"
+```
+
+**Success indicators:**
+- `You can now view your Streamlit app in your browser.`
+- `Network URL: http://0.0.0.0:8501`
+- No `ERROR` or `CRITICAL` messages
+
+### 4c. Test local LLM functionality
+
+```bash
+# Quick test to verify local LLM can be invoked
+ssh linode-langchain-user "cd ~/langchain-demo && source venv/bin/activate && python scripts/test_llm_simple.py"
+```
+
+**Expected**: Model loads and generates a response without errors.
+
+### 4d. Verify dashboard access
+
+Open in browser: http://172.234.181.156:8501
+
+Or test via curl:
+```bash
+curl -I http://172.234.181.156:8501
+# Should return HTTP 200
+```
+
+### 4e. Test database connection (optional)
+
+```bash
+ssh linode-langchain-user "cd ~/langchain-demo && source venv/bin/activate && python -c 'from src.database.schema import get_session, LLMCallLog; session = get_session(); count = session.query(LLMCallLog).count(); print(f\"✅ Database connected. Total logs: {count}\")'"
+```
+
+### 4f. Test structured output strategy (optional, if code changed)
+
+```bash
+ssh linode-langchain-user "cd ~/langchain-demo && source venv/bin/activate && python -c 'from src.models.model_factory import get_chat_model; from src.models.structured_output import select_structured_output_strategy; from src.tools.models import CompanyInfo; model = get_chat_model(model_type=\"local\"); strategy = select_structured_output_strategy(model=model, model_type=\"local\", schema=CompanyInfo); print(f\"✅ Strategy selection working: {strategy}\")'"
+```
+
+**Note**: For detailed verification guide, see `docs/DEPLOYMENT_VERIFICATION.md`.
+
+## 5. Monitor logs (optional)
 
 ```bash
 ssh linode-langchain-user "tail -f /tmp/streamlit.log"
