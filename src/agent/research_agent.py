@@ -203,7 +203,13 @@ class ResearchAgent:
         }
 
         try:
-            agent_output = self._agent.invoke(inputs)
+            # Set recursion_limit higher than max_iterations to allow middleware
+            # to handle termination gracefully. LangGraph's default is 25, which
+            # can be too low for complex research tasks. We set it to at least
+            # 3x max_iterations or 50, whichever is higher.
+            recursion_limit = max(self.max_iterations * 3, 50)
+            config = {"recursion_limit": recursion_limit}
+            agent_output = self._agent.invoke(inputs, config=config)
         except Exception as exc:  # noqa: BLE001
             execution_time = time.perf_counter() - start_time
             steps = self._step_tracker.last_run_steps or self._step_tracker.current_steps
