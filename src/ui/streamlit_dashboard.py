@@ -28,7 +28,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
-from src.database.schema import LLMCallLog, get_session, create_database
+from src.database.schema import LLMCallLog
+from src.utils.streamlit_helpers import init_streamlit_db
 from src.utils.metrics import LLMMetrics
 from src.utils.llm_logger import log_llm_call
 
@@ -42,12 +43,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize database
-@st.cache_resource
-def init_db():
-    """Initialize database connection."""
-    create_database()
-    return get_session()
+# Use shared database initialization (cached internally via streamlit_helpers)
 
 
 def get_call_logs(session: Session, limit: int = 100, model_type: str = None, 
@@ -109,11 +105,7 @@ def page_call_llm():
     st.markdown("Interactively call your local LLM and see metrics in real-time")
     
     # Initialize database
-    try:
-        session = init_db()
-    except Exception as e:
-        st.error(f"Failed to connect to database: {e}")
-        st.stop()
+    session = init_streamlit_db()
     
     # Model configuration sidebar (appears below navigation divider)
     st.sidebar.markdown("---")  # Add separator from navigation
@@ -395,11 +387,7 @@ def page_agent_execution():
     st.markdown("Execute the research agent on companies and monitor progress in real-time")
 
     # Initialize database
-    try:
-        session = init_db()
-    except Exception as e:
-        st.error(f"Failed to connect to database: {e}")
-        st.stop()
+    session = init_streamlit_db()
 
     # Sidebar configuration
     st.sidebar.markdown("---")
@@ -698,11 +686,7 @@ def page_monitor():
     st.markdown("Real-time monitoring and analysis of LLM API calls")
     
     # Initialize database
-    try:
-        session = init_db()
-    except Exception as e:
-        st.error(f"Failed to connect to database: {e}")
-        st.stop()
+    session = init_streamlit_db()
     
     # Sidebar filters (appears below navigation divider)
     st.sidebar.markdown("---")  # Add separator from navigation

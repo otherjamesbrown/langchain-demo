@@ -7,7 +7,8 @@ enabling systematic and reproducible research.
 
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from src.database.schema import ResearchQuery, get_session
+from src.database.schema import ResearchQuery
+from src.utils.database import get_db_session
 from sqlalchemy.orm import Session
 
 
@@ -88,34 +89,26 @@ def generate_queries(
     if templates is None:
         templates = DEFAULT_QUERY_TEMPLATES
     
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
-    try:
-        queries = []
-        for template in templates:
-            query_text = template.template.format(company=company_name)
+    with get_db_session(session) as db_session:
+        try:
+            queries = []
+            for template in templates:
+                query_text = template.template.format(company=company_name)
+                
+                query = ResearchQuery(
+                    company_name=company_name,
+                    query_text=query_text,
+                    query_type=template.query_type,
+                    status="pending"
+                )
+                queries.append(query)
+                db_session.add(query)
             
-            query = ResearchQuery(
-                company_name=company_name,
-                query_text=query_text,
-                query_type=template.query_type,
-                status="pending"
-            )
-            queries.append(query)
-            session.add(query)
-        
-        session.commit()
-        return queries
-    except Exception as e:
-        session.rollback()
-        raise Exception(f"Failed to generate queries: {str(e)}")
-    finally:
-        if should_close:
-            session.close()
+            db_session.commit()
+            return queries
+        except Exception as e:
+            db_session.rollback()
+            raise Exception(f"Failed to generate queries: {str(e)}")
 
 
 def generate_queries_for_companies(
@@ -132,16 +125,12 @@ def generate_queries_for_companies(
     Returns:
         Dictionary mapping company names to their ResearchQuery lists
     """
-    session = get_session()
-    results = {}
-    
-    try:
+    with get_db_session() as session:
+        results = {}
         for company_name in company_names:
             queries = generate_queries(company_name, templates, session)
             results[company_name] = queries
         return results
-    finally:
-        session.close()
 
 
 def get_pending_queries(
@@ -158,20 +147,11 @@ def get_pending_queries(
     Returns:
         List of pending ResearchQuery objects
     """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
-    try:
-        query = session.query(ResearchQuery).filter_by(status="pending")
+    with get_db_session(session) as db_session:
+        query = db_session.query(ResearchQuery).filter_by(status="pending")
         if company_name:
             query = query.filter_by(company_name=company_name)
         return query.all()
-    finally:
-        if should_close:
-            session.close()
 
 
 def load_custom_templates(file_path: str) -> List[QueryTemplate]:

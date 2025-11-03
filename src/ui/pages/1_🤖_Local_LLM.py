@@ -22,7 +22,7 @@ import streamlit as st
 import time
 from datetime import datetime
 
-from src.database.schema import get_session, create_database
+from src.utils.streamlit_helpers import init_streamlit_db
 from src.database.operations import (
     ensure_default_configuration,
     get_model_configurations,
@@ -39,23 +39,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize database
-@st.cache_resource
-def init_db():
-    """Initialize database connection."""
-    create_database()
-    return get_session()
-
 # Main page
 st.title("🤖 Call Local LLM")
 st.markdown("Interactively call your local LLM and see metrics in real-time")
 
 # Initialize database
-try:
-    session = init_db()
-except Exception as e:
-    st.error(f"Failed to connect to database: {e}")
-    st.stop()
+session = init_streamlit_db()
 
 ensure_default_configuration(session=session)
 

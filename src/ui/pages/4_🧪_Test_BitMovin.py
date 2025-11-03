@@ -26,7 +26,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 
-from src.database.schema import get_session, create_database
+from src.utils.streamlit_helpers import init_streamlit_db
 from src.database.operations import (
     ensure_default_configuration,
     save_test_execution,
@@ -104,13 +104,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize database
-@st.cache_resource
-def init_db():
-    """Initialize database connection."""
-    create_database()
-    return get_session()
-
 # Main page
 st.title("🧪 BitMovin Research Test")
 st.markdown("""
@@ -120,11 +113,7 @@ and detailed field-by-field validation.
 """)
 
 # Initialize database
-try:
-    session = init_db()
-except Exception as e:
-    st.error(f"Failed to connect to database: {e}")
-    st.stop()
+session = init_streamlit_db()
 
 ensure_default_configuration(session=session)
 

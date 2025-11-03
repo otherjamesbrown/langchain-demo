@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.output_parsers import PydanticOutputParser
 
-from src.database.schema import ProcessingRun, SearchHistory, get_session
+from src.database.schema import ProcessingRun, SearchHistory
+from src.utils.database import get_db_session
 from src.models.model_factory import get_llm
 from src.tools.models import CompanyInfo
 import os
@@ -46,88 +47,81 @@ def process_with_llm(
     Returns:
         ProcessingRun record with output
     """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
     start_time = time.time()
     
     try:
-        # Get LLM instance
-        llm = get_llm(model_type=llm_provider, temperature=temperature)
-        
-        # Prepare input context (for storage)
-        input_context = {
-            "prompt_length": len(prompt),
-            "num_search_results": len(search_result_ids),
-            "search_result_ids": search_result_ids
-        }
-        
-        # Execute LLM
-        print(f"Processing {company_name} with {llm_provider}/{llm_model}...")
-        raw_output = llm.invoke(prompt)
-        
-        execution_time = time.time() - start_time
-        
-        # Try to parse structured output
-        try:
-            parser = PydanticOutputParser(pydantic_object=CompanyInfo)
-            # Note: This may need adjustment based on actual LLM output format
-            company_info = _parse_llm_output(raw_output, company_name)
-        except Exception as e:
-            print(f"Warning: Failed to parse structured output: {e}")
-            company_info = None
-        
-        # Create processing run record
-        processing_run = ProcessingRun(
-            company_name=company_name,
-            prompt_version=prompt_version,
-            prompt_template=prompt,  # Store full prompt
-            instructions_source=instructions_source,
-            llm_model=llm_model,
-            llm_provider=llm_provider,
-            temperature=temperature,
-            search_result_ids=search_result_ids,
-            input_context=input_context,
-            output=company_info.model_dump() if company_info else None,
-            raw_output=str(raw_output),
-            execution_time_seconds=execution_time,
-            success=True
-        )
-        
-        session.add(processing_run)
-        session.commit()
-        
-        print(f"✓ Completed in {execution_time:.2f}s")
-        return processing_run
-        
+        with get_db_session(session) as db_session:
+            # Get LLM instance
+            llm = get_llm(model_type=llm_provider, temperature=temperature)
+            
+            # Prepare input context (for storage)
+            input_context = {
+                "prompt_length": len(prompt),
+                "num_search_results": len(search_result_ids),
+                "search_result_ids": search_result_ids
+            }
+            
+            # Execute LLM
+            print(f"Processing {company_name} with {llm_provider}/{llm_model}...")
+            raw_output = llm.invoke(prompt)
+            
+            execution_time = time.time() - start_time
+            
+            # Try to parse structured output
+            try:
+                parser = PydanticOutputParser(pydantic_object=CompanyInfo)
+                # Note: This may need adjustment based on actual LLM output format
+                company_info = _parse_llm_output(raw_output, company_name)
+            except Exception as e:
+                print(f"Warning: Failed to parse structured output: {e}")
+                company_info = None
+            
+            # Create processing run record
+            processing_run = ProcessingRun(
+                company_name=company_name,
+                prompt_version=prompt_version,
+                prompt_template=prompt,  # Store full prompt
+                instructions_source=instructions_source,
+                llm_model=llm_model,
+                llm_provider=llm_provider,
+                temperature=temperature,
+                search_result_ids=search_result_ids,
+                input_context=input_context,
+                output=company_info.model_dump() if company_info else None,
+                raw_output=str(raw_output),
+                execution_time_seconds=execution_time,
+                success=True
+            )
+            
+            db_session.add(processing_run)
+            db_session.commit()
+            
+            print(f"✓ Completed in {execution_time:.2f}s")
+            return processing_run
+            
     except Exception as e:
         execution_time = time.time() - start_time
         
-        # Record failed processing
-        processing_run = ProcessingRun(
-            company_name=company_name,
-            prompt_version=prompt_version,
-            prompt_template=prompt[:1000] if len(prompt) > 1000 else prompt,  # Truncate if too long
-            instructions_source=instructions_source,
-            llm_model=llm_model,
-            llm_provider=llm_provider,
-            temperature=temperature,
-            search_result_ids=search_result_ids,
-            execution_time_seconds=execution_time,
-            success=False,
-            error_message=str(e)
-        )
-        
-        session.add(processing_run)
-        session.commit()
+        # Record failed processing in a new session if original failed
+        with get_db_session() as db_session:
+            processing_run = ProcessingRun(
+                company_name=company_name,
+                prompt_version=prompt_version,
+                prompt_template=prompt[:1000] if len(prompt) > 1000 else prompt,  # Truncate if too long
+                instructions_source=instructions_source,
+                llm_model=llm_model,
+                llm_provider=llm_provider,
+                temperature=temperature,
+                search_result_ids=search_result_ids,
+                execution_time_seconds=execution_time,
+                success=False,
+                error_message=str(e)
+            )
+            
+            db_session.add(processing_run)
+            db_session.commit()
         
         raise Exception(f"LLM processing failed: {str(e)}")
-    finally:
-        if should_close:
-            session.close()
 
 
 def _parse_llm_output(raw_output: Any, company_name: str) -> CompanyInfo:

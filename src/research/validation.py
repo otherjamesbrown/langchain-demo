@@ -7,7 +7,8 @@ and tracking quality metrics.
 
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
-from src.database.schema import ProcessingRun, ValidationResult, get_session
+from src.database.schema import ProcessingRun, ValidationResult
+from src.utils.database import get_db_session
 from src.tools.models import CompanyInfo
 
 
@@ -54,8 +55,7 @@ def validate_completeness(processing_run: ProcessingRun) -> ValidationResult:
             "important_completeness": important_present / len(important_fields)
         }
     
-    session = get_session()
-    try:
+    with get_db_session() as session:
         validation = ValidationResult(
             processing_run_id=processing_run.id,
             validation_type="completeness",
@@ -66,8 +66,6 @@ def validate_completeness(processing_run: ProcessingRun) -> ValidationResult:
         session.add(validation)
         session.commit()
         return validation
-    finally:
-        session.close()
 
 
 def compare_processing_runs(
@@ -143,13 +141,10 @@ def validate_processing_run(
     if validation_types is None:
         validation_types = ["completeness"]
     
-    session = get_session()
-    try:
+    with get_db_session() as session:
         processing_run = session.query(ProcessingRun).filter_by(id=processing_run_id).first()
         if not processing_run:
             raise ValueError(f"ProcessingRun {processing_run_id} not found")
-    finally:
-        session.close()
     
     results = []
     
@@ -171,8 +166,7 @@ def get_validation_summary(processing_run_id: int) -> Dict:
     Returns:
         Dictionary with validation summary
     """
-    session = get_session()
-    try:
+    with get_db_session() as session:
         validations = session.query(ValidationResult).filter_by(
             processing_run_id=processing_run_id
         ).all()
@@ -199,6 +193,4 @@ def get_validation_summary(processing_run_id: int) -> Dict:
             summary["average_score"] = sum(scores) / len(scores)
         
         return summary
-    finally:
-        session.close()
 

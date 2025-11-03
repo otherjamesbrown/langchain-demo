@@ -9,10 +9,11 @@ import time
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from src.database.schema import ResearchQuery, SearchHistory, get_session
+from src.database.schema import ResearchQuery, SearchHistory
 from src.tools.web_search import get_search_api_provider, TavilySearchAPI
 from src.tools.web_search import SerperSearchAPI
 from src.tools.models import SearchResult
+from src.utils.database import get_db_session
 import os
 
 
@@ -32,91 +33,83 @@ def execute_search(
     Returns:
         SearchHistory record with raw results
     """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
     start_time = time.time()
     
     try:
-        # Determine provider
-        if provider is None:
-            provider = get_search_api_provider()
-        
-        # Execute search
-        if provider == "tavily":
-            client = TavilySearchAPI()
-            results = client.search(query=research_query.query_text, max_results=5)
-        elif provider == "serper":
-            client = SerperSearchAPI()
-            results = client.search(query=research_query.query_text, num=10)
-        else:
-            raise ValueError(f"Unknown search provider: {provider}")
-        
-        execution_time_ms = (time.time() - start_time) * 1000
-        
-        # Convert to dict for JSON storage
-        raw_results = [{
-            "title": r.title,
-            "url": r.url,
-            "content": r.content,
-            "relevance_score": r.relevance_score
-        } for r in results]
-        
-        # Format results summary
-        results_summary = "\n---\n".join([
-            f"Result {i+1}:\nTitle: {r.title}\nURL: {r.url}\nContent: {r.content[:200]}..."
-            for i, r in enumerate(results)
-        ])
-        
-        # Create search history record
-        search_history = SearchHistory(
-            query=research_query.query_text,
-            company_name=research_query.company_name,
-            search_provider=provider,
-            num_results=len(results),
-            results_summary=results_summary,
-            raw_results=raw_results,  # Store full JSON results
-            execution_time_ms=execution_time_ms,
-            success=1
-        )
-        
-        session.add(search_history)
-        
-        # Update research query status
-        research_query.status = "completed"
-        research_query.completed_at = datetime.utcnow()
-        
-        session.commit()
-        
-        return search_history
-        
+        with get_db_session(session) as db_session:
+            # Determine provider
+            if provider is None:
+                provider = get_search_api_provider()
+            
+            # Execute search
+            if provider == "tavily":
+                client = TavilySearchAPI()
+                results = client.search(query=research_query.query_text, max_results=5)
+            elif provider == "serper":
+                client = SerperSearchAPI()
+                results = client.search(query=research_query.query_text, num=10)
+            else:
+                raise ValueError(f"Unknown search provider: {provider}")
+            
+            execution_time_ms = (time.time() - start_time) * 1000
+            
+            # Convert to dict for JSON storage
+            raw_results = [{
+                "title": r.title,
+                "url": r.url,
+                "content": r.content,
+                "relevance_score": r.relevance_score
+            } for r in results]
+            
+            # Format results summary
+            results_summary = "\n---\n".join([
+                f"Result {i+1}:\nTitle: {r.title}\nURL: {r.url}\nContent: {r.content[:200]}..."
+                for i, r in enumerate(results)
+            ])
+            
+            # Create search history record
+            search_history = SearchHistory(
+                query=research_query.query_text,
+                company_name=research_query.company_name,
+                search_provider=provider,
+                num_results=len(results),
+                results_summary=results_summary,
+                raw_results=raw_results,  # Store full JSON results
+                execution_time_ms=execution_time_ms,
+                success=1
+            )
+            
+            db_session.add(search_history)
+            
+            # Update research query status
+            research_query.status = "completed"
+            research_query.completed_at = datetime.utcnow()
+            
+            db_session.commit()
+            
+            return search_history
     except Exception as e:
         execution_time_ms = (time.time() - start_time) * 1000
         
-        # Record failed search
-        search_history = SearchHistory(
-            query=research_query.query_text,
-            company_name=research_query.company_name,
-            search_provider=provider,
-            execution_time_ms=execution_time_ms,
-            success=0,
-            error_message=str(e)
-        )
-        
-        session.add(search_history)
-        
-        # Update research query status
-        research_query.status = "failed"
-        
-        session.commit()
+        # Record failed search in a new session if original failed
+        with get_db_session() as db_session:
+            search_history = SearchHistory(
+                query=research_query.query_text,
+                company_name=research_query.company_name,
+                search_provider=provider or "unknown",
+                execution_time_ms=execution_time_ms,
+                success=0,
+                error_message=str(e)
+            )
+            
+            db_session.add(search_history)
+            
+            # Update research query status
+            research_query.status = "failed"
+            
+            db_session.commit()
         
         raise Exception(f"Search failed: {str(e)}")
-    finally:
-        if should_close:
-            session.close()
 
 
 def execute_all_pending_queries(
@@ -135,10 +128,7 @@ def execute_all_pending_queries(
     Returns:
         List of SearchHistory records
     """
-    session = get_session()
-    results = []
-    
-    try:
+    with get_db_session() as session:
         pending_queries = session.query(ResearchQuery).filter_by(status="pending").all()
         
         if company_name:
@@ -146,6 +136,7 @@ def execute_all_pending_queries(
         
         print(f"Found {len(pending_queries)} pending queries")
         
+        results = []
         for i, query in enumerate(pending_queries, 1):
             try:
                 print(f"[{i}/{len(pending_queries)}] Executing: {query.query_text[:60]}...")
@@ -161,8 +152,6 @@ def execute_all_pending_queries(
                 continue
         
         return results
-    finally:
-        session.close()
 
 
 def get_search_results_for_company(
@@ -179,18 +168,9 @@ def get_search_results_for_company(
     Returns:
         List of SearchHistory records with raw results
     """
-    if session is None:
-        session = get_session()
-        should_close = True
-    else:
-        should_close = False
-    
-    try:
-        return session.query(SearchHistory).filter_by(
+    with get_db_session(session) as db_session:
+        return db_session.query(SearchHistory).filter_by(
             company_name=company_name,
             success=1
         ).order_by(SearchHistory.created_at.desc()).all()
-    finally:
-        if should_close:
-            session.close()
 

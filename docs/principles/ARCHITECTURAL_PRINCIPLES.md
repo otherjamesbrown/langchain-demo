@@ -204,11 +204,22 @@ model_path = os.getenv("MODEL_PATH")  # Skips database!
 #### Shared Utilities
 - ✅ **DO**: Use shared utilities from `src/utils/` for common operations
   - `model_availability.py` - Model validation and availability checking
-  - `model_factory.py` - Model creation and initialization
+  - `model_factory.py` - Model creation and initialization (in `src/models/`)
   - `logging.py` - Centralized logging configuration
+  - `monitoring.py` - Agent monitoring and callbacks
+  - `metrics.py` - LLM metrics tracking
+  - `llm_logger.py` - LLM call logging to database
+  - `llama_diagnostics.py` - Diagnostic utilities for troubleshooting
+- ✅ **DO**: Use shared utilities from `src/research/` for research operations
+  - `validation.py` - Processing run validation and comparison
 - ✅ **DO**: Check `src/utils/` before implementing new validation logic
+- ✅ **DO**: Use database operations from `src/database/operations.py` for API keys and configuration
+  - Use `get_api_key(provider)` instead of reimplementing API key retrieval
+  - Use `get_app_setting(key)` for application settings
+  - Use `get_default_model_configuration()` for model config
 - ❌ **DON'T**: Duplicate validation logic (package checks, API key validation, file existence)
 - ❌ **DON'T**: Create new utility functions without checking if similar functionality exists
+- ❌ **DON'T**: Reimplement API key retrieval in test scripts - use `get_api_key()` from database operations
 
 **Example - Model Availability**:
 ```python
@@ -220,6 +231,28 @@ models = get_available_models(provider_filter=["gemini"])
 # ❌ WRONG: Duplicate validation logic
 def check_provider_packages_installed(provider: str) -> bool:
     # ... 40 lines of duplicate code ...
+```
+
+**Example - API Key Retrieval**:
+```python
+# ✅ CORRECT: Use database operations
+from src.database.operations import get_api_key
+
+api_key = get_api_key("gemini")  # Checks DB first, falls back to env
+
+# ❌ WRONG: Reimplement in test scripts
+def _check_api_key_available(model_type: str) -> bool:
+    # Try database first
+    from src.database.operations import get_api_key
+    db_key = get_api_key(model_type)
+    if db_key and db_key.strip():
+        return True
+    # Fallback to environment variables
+    env_map = {"gemini": "GOOGLE_API_KEY", ...}
+    api_key_env = env_map.get(model_type)
+    api_key = os.getenv(api_key_env)
+    return api_key is not None and api_key.strip() != ""
+    # This logic is ALREADY in get_api_key() - don't duplicate!
 ```
 
 **Reference**: 

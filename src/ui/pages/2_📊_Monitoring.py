@@ -25,7 +25,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
-from src.database.schema import LLMCallLog, get_session, create_database
+from src.database.schema import LLMCallLog
+from src.utils.streamlit_helpers import init_streamlit_db
 
 # Page config
 st.set_page_config(
@@ -34,12 +35,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize database
-@st.cache_resource
-def init_db():
-    """Initialize database connection."""
-    create_database()
-    return get_session()
+# Use shared database initialization (cached internally)
 
 def get_call_logs(session: Session, limit: int = 100, model_type: str = None,
                    start_date: datetime = None, end_date: datetime = None):
@@ -91,11 +87,7 @@ st.title("📊 LLM Call Monitor")
 st.markdown("Real-time monitoring and analysis of LLM API calls")
 
 # Initialize database
-try:
-    session = init_db()
-except Exception as e:
-    st.error(f"Failed to connect to database: {e}")
-    st.stop()
+session = init_streamlit_db()
 
 # Sidebar filters
 st.sidebar.header("🔍 Filters")
