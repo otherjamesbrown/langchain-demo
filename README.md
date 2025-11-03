@@ -170,7 +170,10 @@ pytest tests/test_agent.py -v
 - `config/env.example` - Configuration template
 
 ### Architecture & Status
-- [PRD.md](PRD.md) - Product Requirements Document
+- [prd/PRD_CURRENT_STATE.md](prd/PRD_CURRENT_STATE.md) - **Current System State** (What's Been Built)
+- [prd/PRD.md](prd/PRD.md) - Original Product Requirements Document (Forward-Looking)
+- [prd/PRD_UPDATE_PROCESS.md](prd/PRD_UPDATE_PROCESS.md) - Process for Keeping PRDs in Sync
+- [prd/PRD_UPDATES.md](prd/PRD_UPDATES.md) - Changelog of PRD Updates
 - [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Project structure
 - [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) - Infrastructure setup status
 - [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) - Application development progress

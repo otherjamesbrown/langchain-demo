@@ -61,5 +61,5 @@ The project follows a modular structure:
 
 If you have questions:
 - LangChain concepts: [LangChain documentation](https://python.langchain.com/)
-- This project: Review PRD.md and README.md
+- This project: Review `prd/PRD.md` and `README.md`
 - Setup issues: Check troubleshooting sections

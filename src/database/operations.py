@@ -5,6 +5,8 @@ This module provides high-level functions for storing and retrieving
 company information, search history, and agent execution records.
 """
 
+import logging
+import os
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy.orm import Session
@@ -22,7 +24,20 @@ if TYPE_CHECKING:
     from src.tools.models import CompanyInfo
 
 
-DEFAULT_GEMINI_API_KEY = "AIzaSyDmiLKwy6z7MfGTR73OZ1SBtSQwGvMxZCQ"
+logger = logging.getLogger(__name__)
+
+GEMINI_ENV_VAR_NAME = "GOOGLE_API_KEY"
+
+
+def _load_gemini_api_key_from_env() -> Optional[str]:
+    """Return the Gemini API key sourced from the environment if configured."""
+
+    # We intentionally source secrets from the environment so they never live in the codebase.
+    # See `config/env.example` for instructions on setting the `GOOGLE_API_KEY` variable.
+    value = os.getenv(GEMINI_ENV_VAR_NAME)
+    if value:
+        return value.strip()
+    return None
 
 
 def init_database():
@@ -106,11 +121,97 @@ def ensure_default_configuration(session: Optional[Session] = None) -> None:
                 set_last_used_model(first_model.id, session=db_session)
                 last_model = first_model
 
-        # Store Gemini API key if missing
+        # Store Gemini API key if missing (only when provided via environment variables)
         existing_gemini = get_api_key("gemini", session=db_session)
         if not existing_gemini:
-            upsert_api_key("gemini", DEFAULT_GEMINI_API_KEY, session=db_session)
-            created = True
+            env_gemini_key = _load_gemini_api_key_from_env()
+            if env_gemini_key:
+                upsert_api_key("gemini", env_gemini_key, session=db_session)
+                created = True
+            else:
+                logger.info(
+                    "Gemini API key missing; configure %s or use the admin UI to add one.",
+                    GEMINI_ENV_VAR_NAME,
+                )
+
+        # Create default model configurations for remote providers when API keys are available
+        # Gemini
+        gemini_key = get_api_key("gemini", session=db_session) or _load_gemini_api_key_from_env()
+        if gemini_key:
+            existing_gemini_model = (
+                db_session.query(ModelConfiguration)
+                .filter(
+                    ModelConfiguration.provider == "gemini",
+                    ModelConfiguration.api_identifier == "gemini-pro"
+                )
+                .first()
+            )
+            if existing_gemini_model is None:
+                db_session.add(
+                    ModelConfiguration(
+                        name="Google Gemini Pro",
+                        provider="gemini",
+                        api_identifier="gemini-pro",
+                        extra_metadata={
+                            "description": "Google Gemini Pro model via API",
+                            "max_output_tokens": 8192,
+                            "context_window": 32768,
+                        }
+                    )
+                )
+                created = True
+
+        # OpenAI
+        openai_key = get_api_key("openai", session=db_session) or os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            existing_openai_model = (
+                db_session.query(ModelConfiguration)
+                .filter(
+                    ModelConfiguration.provider == "openai",
+                    ModelConfiguration.api_identifier == "gpt-4o-mini"
+                )
+                .first()
+            )
+            if existing_openai_model is None:
+                db_session.add(
+                    ModelConfiguration(
+                        name="OpenAI GPT-4o Mini",
+                        provider="openai",
+                        api_identifier="gpt-4o-mini",
+                        extra_metadata={
+                            "description": "OpenAI GPT-4o Mini model via API",
+                            "max_output_tokens": 16384,
+                            "context_window": 128000,
+                        }
+                    )
+                )
+                created = True
+
+        # Anthropic
+        anthropic_key = get_api_key("anthropic", session=db_session) or os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            existing_anthropic_model = (
+                db_session.query(ModelConfiguration)
+                .filter(
+                    ModelConfiguration.provider == "anthropic",
+                    ModelConfiguration.api_identifier == "claude-3-5-sonnet-20241022"
+                )
+                .first()
+            )
+            if existing_anthropic_model is None:
+                db_session.add(
+                    ModelConfiguration(
+                        name="Anthropic Claude 3.5 Sonnet",
+                        provider="anthropic",
+                        api_identifier="claude-3-5-sonnet-20241022",
+                        extra_metadata={
+                            "description": "Anthropic Claude 3.5 Sonnet model via API",
+                            "max_output_tokens": 8192,
+                            "context_window": 200000,
+                        }
+                    )
+                )
+                created = True
 
         if created:
             db_session.commit()

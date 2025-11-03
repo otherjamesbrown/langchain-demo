@@ -1,8 +1,14 @@
 # Product Requirements Document: LangChain Research Agent on Linode
 
+> **Note:** This document describes the original requirements and goals for the project.  
+> For documentation of what has **actually been built**, see [`PRD_CURRENT_STATE.md`](PRD_CURRENT_STATE.md).  
+> For the process to keep PRDs in sync with changes, see [`PRD_UPDATE_PROCESS.md`](PRD_UPDATE_PROCESS.md).
+
 ## Project Overview
 
 This project implements a LangChain research agent on a Linode GPU instance with a local LLM. The agent processes company data from CSV files, performs web searches, and stores results in a database for analysis and retrieval.
+
+**Status:** ✅ Most requirements have been implemented. See [`PRD_CURRENT_STATE.md`](PRD_CURRENT_STATE.md) for current system state.
 
 ## Target Audience
 

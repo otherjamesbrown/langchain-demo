@@ -16,7 +16,7 @@
 
 ### Kept Active (Root Directory)
 - `README.md` - Main entry point
-- `PRD.md` - Product requirements
+- `prd/PRD.md` - Product requirements
 - `PROJECT_STRUCTURE.md` - Codebase layout
 - `ARCHITECTURE_SUMMARY.md` - Current architecture (updated references)
 - `DEVELOPMENT_STATUS.md` - Implementation progress

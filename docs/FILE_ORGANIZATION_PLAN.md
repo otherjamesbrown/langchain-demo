@@ -9,7 +9,7 @@ Too many overlapping status/architecture documents in root and docs/ directories
 ### Root Directory - Current & Active
 **KEEP THESE (single source of truth):**
 - `README.md` - Main project entry point
-- `PRD.md` - Product requirements (source of truth)
+- `prd/PRD.md` - Product requirements (source of truth)
 - `PROJECT_STRUCTURE.md` - Codebase layout
 - `ARCHITECTURE_SUMMARY.md` - Current architecture status
 - `DEVELOPMENT_STATUS.md` - Implementation progress tracker

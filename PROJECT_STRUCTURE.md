@@ -7,7 +7,11 @@ This document outlines the folder structure of the LangChain Research Agent proj
 ```
 langchain-demo/
 ├── README.md                 # Main project documentation
-├── PRD.md                    # Product Requirements Document
+├── prd/                      # Product Requirements Documents
+│   ├── PRD.md                # Original Product Requirements Document
+│   ├── PRD_CURRENT_STATE.md  # Current System State
+│   ├── PRD_UPDATE_PROCESS.md # PRD Update Process
+│   └── PRD_UPDATES.md        # PRD Update Changelog
 ├── PROJECT_STRUCTURE.md      # This file
 ├── .gitignore                # Git ignore rules
 │
