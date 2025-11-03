@@ -360,26 +360,27 @@ def _create_local_chat_model(
         "n_batch": kwargs.get("n_batch", 512),
     }
 
-    # Pass max_tokens if provided (crucial for preventing output truncation)
-    # For local models, this typically comes from model_kwargs set by the UI
-    # ChatLlamaCpp accepts max_tokens, and we also set n_predict for compatibility
-    # with underlying llama-cpp-python library
+    if chat_format and "chat_format" not in kwargs:
+        llama_params["chat_format"] = chat_format
+
+    # Create the base ChatLlamaCpp instance
+    chat_model = ChatLlamaCpp(**llama_params)
+
+    # Bind max_tokens/n_predict using .bind() method for invocation-time parameters
+    # ChatLlamaCpp may not accept these in constructor, but .bind() sets them for all invocations
+    # This is crucial for preventing output truncation
     if "max_tokens" in kwargs:
         max_tokens_value = kwargs["max_tokens"]
-        llama_params["max_tokens"] = max_tokens_value
-        # Also set n_predict as some versions of ChatLlamaCpp may prefer this
-        llama_params["n_predict"] = max_tokens_value
+        # Bind both max_tokens and n_predict to ensure compatibility
+        # n_predict is the actual parameter used by llama-cpp-python
+        chat_model = chat_model.bind(max_tokens=max_tokens_value, n_predict=max_tokens_value)
     elif suggested_ctx:
         # Default to half the context window if not specified
         # This matches the default used in database operations
         max_tokens_default = max(suggested_ctx // 2, 512)
-        llama_params["max_tokens"] = max_tokens_default
-        llama_params["n_predict"] = max_tokens_default
+        chat_model = chat_model.bind(max_tokens=max_tokens_default, n_predict=max_tokens_default)
 
-    if chat_format and "chat_format" not in kwargs:
-        llama_params["chat_format"] = chat_format
-
-    return ChatLlamaCpp(**llama_params)
+    return chat_model
 
 
 def _create_openai_llm(temperature: float, **kwargs) -> BaseLanguageModel:
