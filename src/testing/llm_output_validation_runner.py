@@ -57,9 +57,9 @@ class LLMOutputValidationRunner:
             test_run_description: Optional description for test run
         """
         self.test_name = test_name
-        # Note: Update to actual Gemini 2.5 Pro identifier when available
-        # Using Flash for now as placeholder
-        self.gemini_pro_model_name = "gemini-2.0-flash-exp"
+        # Use actual Gemini Pro model identifier from database
+        # If not found in DB, fall back to default
+        self.gemini_pro_model_name = self._get_gemini_pro_model_name()
         self.gemini_flash_model_name = "gemini-flash-latest"
         
         # Prompt version management
@@ -70,6 +70,43 @@ class LLMOutputValidationRunner:
         
         # Validate and resolve prompt version
         self._resolved_prompt_version = self._resolve_prompt_version()
+    
+    def _get_gemini_pro_model_name(self) -> str:
+        """
+        Get the Gemini Pro model identifier from database.
+        
+        Educational: This looks up the actual Gemini Pro model from the database
+        instead of hardcoding a placeholder. This ensures we use the correct,
+        high-quality model as ground truth.
+        
+        Returns:
+            API identifier for Gemini Pro model (e.g., "gemini-2.5-pro")
+            Falls back to "gemini-2.5-pro" if not found in database
+        """
+        try:
+            from src.database.schema import get_session, ModelConfiguration
+            session = get_session()
+            try:
+                # Look for Gemini Pro model in database
+                gemini_pro = (
+                    session.query(ModelConfiguration)
+                    .filter(
+                        ModelConfiguration.provider == "gemini",
+                        ModelConfiguration.is_active == True,
+                        ModelConfiguration.name.ilike("%pro%")
+                    )
+                    .first()
+                )
+                
+                if gemini_pro and gemini_pro.api_identifier:
+                    return gemini_pro.api_identifier
+            finally:
+                session.close()
+        except Exception:
+            pass
+        
+        # Fallback to default Gemini Pro identifier
+        return "gemini-2.5-pro"
     
     def _resolve_prompt_version(self) -> Optional[PromptVersion]:
         """Resolve the prompt version to use."""
