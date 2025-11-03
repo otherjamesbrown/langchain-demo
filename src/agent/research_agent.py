@@ -30,6 +30,7 @@ from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddlewar
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
 from langchain.agents.middleware.types import ToolCallRequest
+from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
@@ -380,8 +381,8 @@ class ResearchAgent:
             self._step_tracker,
         ]
         
-        # Add minimum iteration enforcement for local models only
-        # Remote models use structured output which naturally enforces multiple iterations
+        # Add minimum iteration enforcement for local models as a backup
+        # Structured output should naturally enforce multiple iterations, but middleware helps
         if self.model_type == "local":
             middleware.append(MinimumIterationMiddleware(min_iterations=3))
         
@@ -391,11 +392,20 @@ class ResearchAgent:
             ToolCallLimitMiddleware(run_limit=self.max_iterations, exit_behavior="end"),
         ])
 
-        # Structured output only works properly with remote models (Gemini, OpenAI, Anthropic)
-        # Local models (ChatLlamaCpp) don't support response_format correctly - it gets
-        # treated as a tool which causes "tool_choice='any'" errors. 
-        # Solution: Use MinimumIterationMiddleware for local models, structured output for remote.
-        response_format = CompanyInfo if self.model_type != "local" else None
+        # Structured output strategies (LangChain v1 requires explicit strategy):
+        # - ToolStrategy: Uses "artificial tool calling" for structured output
+        #   Works with ANY model that supports tool calling (including ChatLlamaCpp)
+        # - ProviderStrategy: Uses provider-native structured output
+        #   Only works with providers that have native support (OpenAI, Anthropic, Gemini)
+        #
+        # According to LangChain docs, ChatLlamaCpp supports tool calling and structured output
+        # via ToolStrategy, which treats the schema as a special tool that must be called.
+        if self.model_type == "local":
+            # Local models: Use ToolStrategy (artificial tool calling)
+            response_format = ToolStrategy(CompanyInfo)
+        else:
+            # Remote models: Use ProviderStrategy (native structured output)
+            response_format = ProviderStrategy(CompanyInfo)
 
         return create_agent(
             model=chat_model,

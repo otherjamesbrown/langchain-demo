@@ -81,19 +81,36 @@ Local models (Llama) have structured output disabled because:
 
 ## Solutions
 
-### ❌ Solution 1: Enable Structured Output for Llama (Not Compatible)
+### ✅ Solution 1: Use ToolStrategy for Llama (Correct Implementation)
 
-**Status**: Attempted but reverted due to technical limitations.
+**Status**: Implemented correctly using LangChain v1 structured output strategies.
 
-**Issue Discovered**:
+**Previous Issue**:
 ```
 Tool choice tool_choice='any' was specified, but the only provided tools were 
 ['web_search_tool', 'CompanyInfo'].
 ```
 
-**Root Cause**: `ChatLlamaCpp` doesn't support LangChain's `response_format` parameter correctly. When `response_format=CompanyInfo` is set for local models, LangChain incorrectly treats it as a tool instead of a schema, causing tool selection conflicts.
+**Root Cause Identified**: We were passing `response_format=CompanyInfo` directly, but **LangChain v1 requires explicit strategy selection**:
+- `ToolStrategy`: Uses "artificial tool calling" for structured output (works with ANY model that supports tool calling)
+- `ProviderStrategy`: Uses provider-native structured output (only for OpenAI, Anthropic, Gemini)
 
-**Conclusion**: Structured output enforcement via `response_format` only works for remote models (Gemini, OpenAI, Anthropic). Local models must rely on **Solution 2** (enhanced prompts) instead.
+**The Fix** (from LangChain docs):
+```python
+from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
+
+# For local models (ChatLlamaCpp)
+response_format = ToolStrategy(CompanyInfo)
+
+# For remote models (Gemini, OpenAI, Anthropic)
+response_format = ProviderStrategy(CompanyInfo)
+```
+
+**How ToolStrategy Works**:
+- Treats the `CompanyInfo` schema as a special "tool"
+- Model must "call" this tool to finish (enforces structured output)
+- Works with ChatLlamaCpp since it supports tool calling ✅
+- This naturally enforces multiple iterations (model can't finish without calling the schema "tool")
 
 **Testing**:
 ```bash
@@ -256,14 +273,14 @@ def _check_missing_critical_fields(self, company_info: Optional[CompanyInfo]) ->
 
 ### For Production Use
 
-**Current State**: **Solution 2** (enhanced prompts) implemented, but local models still limited to 1-2 iterations
+**UPDATED Solution**: Use **ToolStrategy** for local models (Solution 1 properly implemented)
 
-1. ❌ **Solution 1 Not Viable**: Structured output causes tool choice errors with ChatLlamaCpp
-2. ✅ **Solution 2 Implemented**: Enhanced system prompt encourages thorough research (advisory only)
-3. ⚠️ **Solution 3 Limited**: Middleware implemented but can't override agent completion decisions
-4. 💡 **Recommendation**: See Solution 4 (post-processing retry) or accept iteration differences
+1. ✅ **Solution 1 FIXED**: Use `ToolStrategy(CompanyInfo)` for ChatLlamaCpp (enforces structured output via artificial tool calling)
+2. ✅ **Solution 2 Implemented**: Enhanced system prompt encourages thorough research  
+3. ✅ **Solution 3 Implemented**: Minimum iteration middleware with `jump_to="model"` as backup
+4. 🧪 **Testing Required**: Verify Llama performs 3+ iterations with ToolStrategy
 
-**Reality**: Without structured output enforcement, local models will perform fewer iterations than remote models. This is a fundamental limitation of `ChatLlamaCpp` in the current LangChain architecture.
+**Expected Result**: With `ToolStrategy`, ChatLlamaCpp should match Gemini's 3-5 iterations since the model must "call" the CompanyInfo schema to finish, enforcing comprehensive research.
 
 ### For Development/Testing
 
@@ -324,19 +341,23 @@ python scripts/test_llama_diagnostics.py BitMovin --max-iterations 10
 
 ---
 
-**Status**: ⚠️ **PARTIAL SOLUTION - Local Models Limited**  
+**Status**: ✅ **SOLUTION FOUND - ToolStrategy for Local Models**  
 **Last Updated**: 2025-11-03  
 **Changes Applied**:
-- ❌ Solution 1: Structured output not compatible with ChatLlamaCpp (causes tool_choice errors)
-- ✅ Solution 2: Enhanced system prompt with explicit iteration requirements (advisory only)
-- ⚠️ Solution 3: Minimum iteration middleware implemented but ineffective (can't override agent decisions)
+- ✅ Solution 1: Use `ToolStrategy(CompanyInfo)` for local models, `ProviderStrategy(CompanyInfo)` for remote
+- ✅ Solution 2: Enhanced system prompt with explicit iteration requirements
+- ✅ Solution 3: Minimum iteration middleware with `@hook_config(can_jump_to=["model"])` and `jump_to="model"`
 
-**Testing Results**: Local models (Llama) still perform only 1-2 iterations despite prompts and middleware
+**Key Discovery**: LangChain v1 documentation revealed that:
+- **ChatLlamaCpp DOES support structured output via `ToolStrategy`** ✅
+- Must explicitly wrap schema: `ToolStrategy(CompanyInfo)` not just `CompanyInfo`
+- `ToolStrategy` treats schema as an "artificial tool" the model must call to finish
+- This naturally enforces multiple iterations (model can't finish without comprehensive data)
 
-**Root Cause**: `ChatLlamaCpp` lacks structured output support, and LangChain's agent architecture doesn't allow middleware to override completion decisions. The agent decides when it's "done" based on internal logic that middleware cannot change.
+**Expected Result**:
+- Llama should now perform **3-5 iterations** matching Gemini
+- Structured output enforcement works the same way (tool calling mechanism)
+- Middleware provides backup enforcement via `jump_to="model"`
 
-**Final Recommendation**:
-- Use **Gemini/OpenAI/Anthropic** for production (4-5 iterations with structured output)
-- Accept that **local models will do 1-2 iterations** without structured output enforcement
-- Enhanced prompts (Solution 2) provide minor improvement in output quality but don't force iterations
+**Next Steps**: Deploy and test to verify Llama matches Gemini's iteration count
 

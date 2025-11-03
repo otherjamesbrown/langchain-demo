@@ -7,8 +7,8 @@ that may stop too early without structured output enforcement.
 
 from typing import Any, Dict, Optional
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState
-from langchain_core.messages import AIMessage
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, hook_config
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
@@ -59,19 +59,23 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         self._iteration_count = 0
         return None
     
+    @hook_config(can_jump_to=["model"])
     def after_model(self, state: AgentState, runtime: Any) -> Optional[Dict[str, Any]]:
         """Check if model is trying to finish prematurely.
         
         This hook is called after each model generation. If the model generates
         a response without tool calls (indicating it wants to finish) and we're
-        below the minimum iteration threshold, we force it to make another tool call.
+        below the minimum iteration threshold, we jump back to "model" to force
+        another iteration with a continuation request.
+        
+        Uses LangChain's jump_to mechanism to repeat the model call cycle.
         
         Args:
             state: Current agent state
             runtime: Runtime context
             
         Returns:
-            Modified state if forcing continuation, None otherwise
+            Modified state with jump_to if forcing continuation, None otherwise
         """
         # Increment iteration counter
         self._iteration_count += 1
@@ -98,13 +102,10 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
         )
 
         if not has_tool_calls:
-            # Model is trying to finish - force continuation by requesting more research
+            # Model is trying to finish - force continuation using jump_to
             remaining = self.min_iterations - self._iteration_count
             
-            # Create a tool call to web_search_tool to force more research
-            # This tricks the agent into thinking it needs to do more work
-            from langchain_core.messages import HumanMessage
-            
+            # Create a continuation request as a HumanMessage
             continuation_request = HumanMessage(
                 content=(
                     f"Your research is incomplete. You have performed {self._iteration_count} "
@@ -114,11 +115,13 @@ class MinimumIterationMiddleware(AgentMiddleware[AgentState, None]):
                 )
             )
             
-            # Replace the final answer with continuation request
+            # Replace the premature final answer with continuation request
+            # and jump back to "model" to force another iteration
             modified_messages = messages[:-1] + [continuation_request]
             
             return {
                 "messages": modified_messages,
+                "jump_to": "model",  # Force agent to call model again
             }
 
         return None
