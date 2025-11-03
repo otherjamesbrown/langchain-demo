@@ -308,22 +308,21 @@ if execute_button:
                         stage4 = st.empty()
                         stage4.info("4️⃣ Storing to database...")
 
-                        # Store result in session state
-                        st.session_state.agent_results[company] = {
-                            "result": result,
-                            "execution_time": execution_time,
-                            "timestamp": datetime.now()
-                        }
+                        # Initialize variables for IDs
+                        company_record = None
+                        execution_log_id = None
 
                         if result.company_info:
                             try:
-                                save_company_info(result.company_info, session=session)
+                                company_record = save_company_info(result.company_info, session=session)
                                 stage4.success("4️⃣ ✅ Stored to database")
                             except Exception as db_error:
                                 stage4.error("4️⃣ ❌ Failed to store in database")
                                 st.error(f"Database error: {db_error}")
+                                company_record = None
                         else:
                             stage4.warning("4️⃣ ⚠️ No structured company info to store")
+                            company_record = None
 
                         # Log the run to LLM call history so we can analyse model usage.
                         model_display = result.model_display_name or selected_model.name
@@ -362,8 +361,18 @@ if execute_button:
                             )
                             if log_entry is not None:
                                 session.commit()
+                                execution_log_id = log_entry.id
                         except Exception as logging_error:  # noqa: BLE001
                             st.warning(f"⚠️ Failed to log agent run: {logging_error}")
+
+                        # Store result in session state with database IDs
+                        st.session_state.agent_results[company] = {
+                            "result": result,
+                            "execution_time": execution_time,
+                            "timestamp": datetime.now(),
+                            "company_id": company_record.id if company_record else None,
+                            "execution_log_id": execution_log_id
+                        }
 
                         # Display summary
                         st.divider()
@@ -382,6 +391,20 @@ if execute_button:
                                 st.metric("Fields Found", len([f for f in vars(result.company_info).values() if f]))
                             else:
                                 st.metric("Fields Found", "N/A")
+
+                        # Display database IDs
+                        st.caption("**Database IDs:**")
+                        id_col1, id_col2 = st.columns(2)
+                        with id_col1:
+                            if company_record:
+                                st.code(f"Company ID: {company_record.id}", language="")
+                            else:
+                                st.code("Company ID: Not saved", language="")
+                        with id_col2:
+                            if execution_log_id:
+                                st.code(f"Execution Log ID: {execution_log_id}", language="")
+                            else:
+                                st.code("Execution Log ID: Not logged", language="")
 
                         # Display company info if available
                         if result.company_info:
@@ -511,14 +534,14 @@ if execute_button:
 
                                         if formatted_text:
                                             st.caption("Tool formatted response:")
-                                            st.text(formatted_text[:1000] + ("…" if len(formatted_text) > 1000 else ""))
+                                            st.code(formatted_text, language="text")
 
                                         if raw_json_text:
                                             st.caption("Raw provider response:")
                                             try:
                                                 st.json(json.loads(raw_json_text))
                                             except json.JSONDecodeError:
-                                                st.text(raw_json_text[:2000] + ("…" if len(raw_json_text) > 2000 else ""))
+                                                st.code(raw_json_text, language="json")
                                         elif not formatted_text:
                                             st.caption("Tool returned no content")
 
@@ -531,7 +554,9 @@ if execute_button:
                         st.session_state.agent_results[company] = {
                             "error": str(e),
                             "execution_time": time.time() - start_time,
-                            "timestamp": datetime.now()
+                            "timestamp": datetime.now(),
+                            "company_id": None,
+                            "execution_log_id": None
                         }
 
             # Update progress bar
