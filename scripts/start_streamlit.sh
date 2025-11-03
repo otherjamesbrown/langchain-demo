@@ -59,10 +59,25 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-# Load environment variables from .env file if it exists
+# Load environment variables from .env file using python-dotenv
 if [ -f ".env" ]; then
     echo "   Loading environment variables from .env..."
-    export $(cat .env | grep -v '^#' | xargs)
+    python3 -c "
+import os
+from dotenv import load_dotenv
+load_dotenv('.env')
+env_vars = {}
+with open('.env', 'r') as f:
+    for line in f:
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+            key, value = line.split('=', 1)
+            env_vars[key.strip()] = value.strip()
+for key, value in env_vars.items():
+    print(f\"export {key}='{value}'\")
+" > /tmp/streamlit_env.sh
+    source /tmp/streamlit_env.sh
+    rm /tmp/streamlit_env.sh
 fi
 
 # Start Streamlit
