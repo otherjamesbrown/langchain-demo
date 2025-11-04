@@ -322,6 +322,213 @@ class PromptAnalytics:
         finally:
             if should_close:
                 db_session.close()
+    
+    @staticmethod
+    def get_cost_analysis(
+        prompt_name: Optional[str] = None,
+        company_name: Optional[str] = None,
+        prompt_version: Optional[str] = None,
+        test_suite_name: Optional[str] = None,
+        session: Optional[Session] = None
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive cost analysis for test runs.
+        
+        Educational: This function aggregates costs across all test runs, breaking them
+        down by agent execution costs (running models) and grading costs (Gemini Flash
+        grading). This enables cost tracking and optimization of the testing process.
+        
+        Args:
+            prompt_name: Optional filter by prompt name
+            company_name: Optional filter by company name
+            prompt_version: Optional filter by prompt version
+            test_suite_name: Optional filter by test suite name
+            session: Optional database session
+        
+        Returns:
+            Dict containing:
+                - total: Overall totals (total_cost, agent_cost, grading_cost, total_tokens, etc.)
+                - by_prompt_version: Breakdown by prompt version (if prompt_name provided)
+                - by_company: Breakdown by company
+                - by_model: Breakdown by model
+        """
+        db_session, should_close = _resolve_session(session)
+        
+        try:
+            # Build base query for outputs (agent costs)
+            outputs_query = db_session.query(
+                TestRun.prompt_name,
+                TestRun.prompt_version,
+                TestRun.company_name,
+                LLMOutputValidation.model_name,
+                LLMOutputValidation.model_provider,
+                func.sum(LLMOutputValidation.input_tokens).label('total_input_tokens'),
+                func.sum(LLMOutputValidation.output_tokens).label('total_output_tokens'),
+                func.sum(LLMOutputValidation.total_tokens).label('total_tokens'),
+                func.sum(LLMOutputValidation.estimated_cost_usd).label('total_cost'),
+                func.count(LLMOutputValidation.id).label('outputs_count'),
+            ).join(
+                LLMOutputValidation,
+                TestRun.id == LLMOutputValidation.test_run_id
+            )
+            
+            # Build base query for grading results (grading costs)
+            grading_query = db_session.query(
+                TestRun.prompt_name,
+                TestRun.prompt_version,
+                TestRun.company_name,
+                LLMOutputValidationResult.model_name,
+                func.sum(LLMOutputValidationResult.grading_input_tokens).label('total_input_tokens'),
+                func.sum(LLMOutputValidationResult.grading_output_tokens).label('total_output_tokens'),
+                func.sum(LLMOutputValidationResult.grading_total_tokens).label('total_tokens'),
+                func.sum(LLMOutputValidationResult.grading_cost_usd).label('total_cost'),
+                func.count(LLMOutputValidationResult.id).label('grading_count'),
+            ).join(
+                LLMOutputValidationResult,
+                TestRun.id == LLMOutputValidationResult.test_run_id
+            )
+            
+            # Apply filters to both queries
+            filters = []
+            if prompt_name:
+                filters.append(TestRun.prompt_name == prompt_name)
+            if company_name:
+                filters.append(TestRun.company_name == company_name)
+            if prompt_version:
+                filters.append(TestRun.prompt_version == prompt_version)
+            if test_suite_name:
+                filters.append(TestRun.test_suite_name == test_suite_name)
+            
+            if filters:
+                for f in filters:
+                    outputs_query = outputs_query.filter(f)
+                    grading_query = grading_query.filter(f)
+            
+            # Get agent costs
+            agent_results = outputs_query.group_by(
+                TestRun.prompt_name,
+                TestRun.prompt_version,
+                TestRun.company_name,
+                LLMOutputValidation.model_name,
+                LLMOutputValidation.model_provider,
+            ).all()
+            
+            # Get grading costs
+            grading_results = grading_query.group_by(
+                TestRun.prompt_name,
+                TestRun.prompt_version,
+                TestRun.company_name,
+                LLMOutputValidationResult.model_name,
+            ).all()
+            
+            # Calculate totals
+            total_agent_cost = sum(r.total_cost or 0 for r in agent_results)
+            total_grading_cost = sum(r.total_cost or 0 for r in grading_results)
+            total_cost = total_agent_cost + total_grading_cost
+            
+            total_agent_tokens = sum(r.total_tokens or 0 for r in agent_results)
+            total_grading_tokens = sum(r.total_tokens or 0 for r in grading_results)
+            total_tokens = total_agent_tokens + total_grading_tokens
+            
+            # Aggregate by prompt version
+            by_prompt_version = {}
+            for result in agent_results:
+                key = f"{result.prompt_name}@{result.prompt_version}"
+                if key not in by_prompt_version:
+                    by_prompt_version[key] = {
+                        'agent_cost': 0,
+                        'agent_tokens': 0,
+                        'grading_cost': 0,
+                        'grading_tokens': 0,
+                        'outputs_count': 0,
+                        'grading_count': 0,
+                    }
+                by_prompt_version[key]['agent_cost'] += result.total_cost or 0
+                by_prompt_version[key]['agent_tokens'] += result.total_tokens or 0
+                by_prompt_version[key]['outputs_count'] += result.outputs_count or 0
+            
+            for result in grading_results:
+                key = f"{result.prompt_name}@{result.prompt_version}"
+                if key not in by_prompt_version:
+                    by_prompt_version[key] = {
+                        'agent_cost': 0,
+                        'agent_tokens': 0,
+                        'grading_cost': 0,
+                        'grading_tokens': 0,
+                        'outputs_count': 0,
+                        'grading_count': 0,
+                    }
+                by_prompt_version[key]['grading_cost'] += result.total_cost or 0
+                by_prompt_version[key]['grading_tokens'] += result.total_tokens or 0
+                by_prompt_version[key]['grading_count'] += result.grading_count or 0
+            
+            # Aggregate by company
+            by_company = {}
+            for result in agent_results:
+                company = result.company_name
+                if company not in by_company:
+                    by_company[company] = {
+                        'agent_cost': 0,
+                        'agent_tokens': 0,
+                        'grading_cost': 0,
+                        'grading_tokens': 0,
+                        'outputs_count': 0,
+                        'grading_count': 0,
+                    }
+                by_company[company]['agent_cost'] += result.total_cost or 0
+                by_company[company]['agent_tokens'] += result.total_tokens or 0
+                by_company[company]['outputs_count'] += result.outputs_count or 0
+            
+            for result in grading_results:
+                company = result.company_name
+                if company not in by_company:
+                    by_company[company] = {
+                        'agent_cost': 0,
+                        'agent_tokens': 0,
+                        'grading_cost': 0,
+                        'grading_tokens': 0,
+                        'outputs_count': 0,
+                        'grading_count': 0,
+                    }
+                by_company[company]['grading_cost'] += result.total_cost or 0
+                by_company[company]['grading_tokens'] += result.total_tokens or 0
+                by_company[company]['grading_count'] += result.grading_count or 0
+            
+            # Aggregate by model
+            by_model = {}
+            for result in agent_results:
+                model_key = f"{result.model_provider}:{result.model_name}"
+                if model_key not in by_model:
+                    by_model[model_key] = {
+                        'agent_cost': 0,
+                        'agent_tokens': 0,
+                        'outputs_count': 0,
+                        'provider': result.model_provider,
+                        'model_name': result.model_name,
+                    }
+                by_model[model_key]['agent_cost'] += result.total_cost or 0
+                by_model[model_key]['agent_tokens'] += result.total_tokens or 0
+                by_model[model_key]['outputs_count'] += result.outputs_count or 0
+            
+            return {
+                'total': {
+                    'total_cost': total_cost,
+                    'agent_cost': total_agent_cost,
+                    'grading_cost': total_grading_cost,
+                    'total_tokens': total_tokens,
+                    'agent_tokens': total_agent_tokens,
+                    'grading_tokens': total_grading_tokens,
+                    'outputs_count': sum(r.outputs_count or 0 for r in agent_results),
+                    'grading_count': sum(r.grading_count or 0 for r in grading_results),
+                },
+                'by_prompt_version': by_prompt_version,
+                'by_company': by_company,
+                'by_model': by_model,
+            }
+            
+        finally:
+            if should_close:
+                db_session.close()
 
 
 def _resolve_session(session: Optional[Session]) -> Tuple[Session, bool]:
