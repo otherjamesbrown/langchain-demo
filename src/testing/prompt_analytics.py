@@ -386,6 +386,9 @@ class PromptAnalytics:
             ).join(
                 LLMOutputValidationResult,
                 TestRun.id == LLMOutputValidationResult.test_run_id
+            ).join(
+                LLMOutputValidation,
+                LLMOutputValidationResult.output_id == LLMOutputValidation.id
             )
             
             # Apply filters to both queries
