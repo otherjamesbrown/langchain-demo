@@ -30,7 +30,6 @@ class TestStage11:
         # Mock field scores (simulating grading results)
         field_scores = {
             "company_name_field": {"score": 100, "match_type": "exact", "explanation": "test", "confidence": 1.0},
-            "industry": {"score": 85, "match_type": "semantic", "explanation": "test", "confidence": 0.9},
             "company_size": {"score": 100, "match_type": "exact", "explanation": "test", "confidence": 1.0},
             "headquarters": {"score": 90, "match_type": "semantic", "explanation": "test", "confidence": 0.95},
             "founded": {"score": 100, "match_type": "exact", "explanation": "test", "confidence": 1.0},
@@ -47,7 +46,7 @@ class TestStage11:
         assert abs(overall_accuracy - 92.86) < 0.1, f"Expected ~92.86, got {overall_accuracy:.2f}"
         
         # Required fields (core company info)
-        required_fields = ["company_name_field", "industry", "company_size", "headquarters", "founded"]
+        required_fields = ["company_name_field", "company_size", "headquarters", "founded"]
         required_scores = [field_scores[f]["score"] for f in required_fields if f in field_scores]
         required_fields_accuracy = sum(required_scores) / len(required_scores) if required_scores else 0.0
         
@@ -63,7 +62,7 @@ class TestStage11:
         assert optional_fields_accuracy == 87.5, f"Expected 87.5, got {optional_fields_accuracy:.1f}"
         
         # Weighted accuracy (critical fields count 2x)
-        critical_fields = ["industry", "company_size", "headquarters"]
+        critical_fields = ["company_size", "headquarters"]
         weighted_scores = []
         for field_name, result in field_scores.items():
             weight = 2.0 if field_name in critical_fields else 1.0
@@ -71,7 +70,7 @@ class TestStage11:
         weighted_accuracy = sum(weighted_scores) / len(weighted_scores) if weighted_scores else 0.0
         
         print(f"✅ Weighted accuracy: {weighted_accuracy:.1f}%")
-        # Critical fields (2x): industry(85), company_size(100), headquarters(90) = 85*2 + 100*2 + 90*2 = 550
+        # Critical fields (2x): company_size(100), headquarters(90) = 100*2 + 90*2 = 380
         # Other fields (1x): company_name(100), founded(100), description(75), website(100) = 375
         # Total: 550 + 375 = 925, count: 3*2 + 4 = 10
         # Expected: 925/10 = 92.5

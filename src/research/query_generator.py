@@ -48,21 +48,6 @@ DEFAULT_QUERY_TEMPLATES = [
         description="Company headquarters location"
     ),
     QueryTemplate(
-        query_type="products",
-        template="{company} products services what does company do",
-        description="Products and services"
-    ),
-    QueryTemplate(
-        query_type="competitors",
-        template="{company} competitors alternatives similar companies",
-        description="Market competitors"
-    ),
-    QueryTemplate(
-        query_type="industry",
-        template="{company} industry sector market vertical",
-        description="Industry classification"
-    ),
-    QueryTemplate(
         query_type="funding",
         template="{company} funding stage investors venture capital",
         description="Funding stage and investors"

@@ -101,16 +101,11 @@ def display_test_results(result: dict) -> None:
             st.metric("Overall Accuracy", format_accuracy_score(avg_overall))
         
         with col2:
-            avg_required = stats.get('average_required_fields_accuracy')
-            st.metric("Required Fields", format_accuracy_score(avg_required))
-        
-        with col3:
-            avg_optional = stats.get('average_optional_fields_accuracy')
-            st.metric("Optional Fields", format_accuracy_score(avg_optional))
-        
-        with col4:
             avg_weighted = stats.get('average_weighted_accuracy')
             st.metric("Weighted Accuracy", format_accuracy_score(avg_weighted))
+        
+        # Note: Required/Optional fields distinction removed - all fields treated equally
+        # For backwards compatibility, these metrics still exist but equal overall accuracy
         
         # Cost information
         if stats.get('total_grading_cost'):
@@ -135,8 +130,9 @@ def display_comparison(comparison: List[Dict[str, Any]]) -> None:
             'Version': version_data['prompt_version'],
             'Test Runs': version_data['test_runs_count'],
             'Overall Accuracy': version_data.get('average_overall_accuracy'),
-            'Required Fields': version_data.get('average_required_fields_accuracy'),
-            'Optional Fields': version_data.get('average_optional_fields_accuracy'),
+            # Note: Required/Optional distinction removed - these equal overall accuracy
+            'Required Fields': version_data.get('average_required_fields_accuracy'),  # For backwards compatibility
+            'Optional Fields': version_data.get('average_optional_fields_accuracy'),  # For backwards compatibility
             'Weighted': version_data.get('average_weighted_accuracy'),
             'Companies': ', '.join(version_data['companies_tested']),
         })
@@ -499,27 +495,19 @@ with tab4:
                                 # These match the LLMOutputValidation schema columns
                                 field_mapping = {
                                     'company_name_field': 'Company Name',
-                                    'industry': 'Industry',
                                     'company_size': 'Company Size',
                                     'headquarters': 'Headquarters',
                                     'founded': 'Founded',
                                     'description': 'Description',
                                     'website': 'Website',
-                                    'products': 'Products',
-                                    'competitors': 'Competitors',
                                     'revenue': 'Revenue',
                                     'funding_stage': 'Funding Stage',
                                     'growth_stage': 'Growth Stage',
                                     'industry_vertical': 'Industry Vertical',
                                     'sub_industry_vertical': 'Sub-Industry Vertical',
-                                    'financial_health': 'Financial Health',
                                     'business_and_technology_adoption': 'Business & Technology Adoption',
-                                    'primary_workload_philosophy': 'Primary Workload Philosophy',
                                     'buyer_journey': 'Buyer Journey',
-                                    'budget_maturity': 'Budget Maturity',
                                     'cloud_spend_capacity': 'Cloud Spend Capacity',
-                                    'procurement_process': 'Procurement Process',
-                                    'key_personas': 'Key Personas',
                                 }
                                 
                                 # Build table data

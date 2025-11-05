@@ -19,13 +19,6 @@ class CompanyInfo(BaseModel):
         description="Official company name as listed in primary sources."
     )
 
-    industry: str = Field(
-        description=(
-            "Primary industry or sector label used across public profiles. "
-            "Keep this broad (e.g., 'Video Technology / SaaS')."
-        )
-    )
-
     company_size: str = Field(
         description=(
             "Number of employees, ideally as a range (e.g., '201-500 employees')."
@@ -49,16 +42,6 @@ class CompanyInfo(BaseModel):
     website: Optional[str] = Field(
         default=None,
         description="Official website URL."
-    )
-
-    products: List[str] = Field(
-        default_factory=list,
-        description="List of prominent products, services, or platforms."
-    )
-
-    competitors: List[str] = Field(
-        default_factory=list,
-        description="Key competitors in the same problem space."
     )
 
     revenue: Optional[str] = Field(
@@ -95,14 +78,6 @@ class CompanyInfo(BaseModel):
         )
     )
 
-    financial_health: Optional[str] = Field(
-        default=None,
-        description=(
-            "Financial health label (Bootstrapped, VC-Funded (Early), VC-Funded (Growth), "
-            "PE-Backed, Public (Profitable), or Public (Unprofitable))."
-        )
-    )
-
     business_and_technology_adoption: Optional[str] = Field(
         default=None,
         description=(
@@ -110,27 +85,10 @@ class CompanyInfo(BaseModel):
         )
     )
 
-    primary_workload_philosophy: Optional[str] = Field(
-        default=None,
-        description=(
-            "Primary workload philosophy (Performance-Intensive, Distributed & Edge-Native, "
-            "Reliability & Simplicity, Storage & Data-Centric, Orchestration-Native, or "
-            "Cost-Optimization & Efficiency)."
-        )
-    )
-
     buyer_journey: Optional[str] = Field(
         default=None,
         description=(
             "Buyer journey motion (Practitioner-Led, Organization-Led, Partner-Led, or Hybrid)."
-        )
-    )
-
-    budget_maturity: Optional[str] = Field(
-        default=None,
-        description=(
-            "Budget maturity classification (Ad Hoc Spend, Team Budget, Central IT Budget, "
-            "or CCoE/Governance)."
         )
     )
 
@@ -142,28 +100,12 @@ class CompanyInfo(BaseModel):
         )
     )
 
-    procurement_process: Optional[str] = Field(
-        default=None,
-        description=(
-            "Procurement sophistication (Minimal/Self-Service, Lightweight Review, "
-            "Formal Review, or Enterprise Procurement)."
-        )
-    )
-
-    key_personas: List[str] = Field(
-        default_factory=list,
-        description=(
-            "Notable buyer or influencer personas (Deciders, Approvers, Users, Partners)."
-        )
-    )
-
     class Config:
         """Pydantic configuration with educational example."""
 
         json_schema_extra = {
             "example": {
                 "company_name": "Bitmovin",
-                "industry": "Video Technology / SaaS",
                 "company_size": "201-500 employees",
                 "headquarters": "Vienna, Austria",
                 "founded": 2013,
@@ -171,32 +113,14 @@ class CompanyInfo(BaseModel):
                     "Video streaming technology company providing encoding, player, and analytics platforms."
                 ),
                 "website": "https://bitmovin.com",
-                "products": [
-                    "Bitmovin Player",
-                    "Bitmovin Encoding",
-                    "Bitmovin Analytics"
-                ],
-                "competitors": [
-                    "Brightcove",
-                    "JW Player",
-                    "Mux"
-                ],
                 "revenue": "$10M - $50M",
                 "funding_stage": "Series C",
                 "growth_stage": "Scale-Up",
                 "industry_vertical": "Media & Entertainment",
                 "sub_industry_vertical": "Media SaaS",
-                "financial_health": "VC-Funded (Growth)",
                 "business_and_technology_adoption": "Digital-Native (Enterprise Scale)",
-                "primary_workload_philosophy": "Performance-Intensive",
                 "buyer_journey": "Hybrid",
-                "budget_maturity": "Central IT Budget",
-                "cloud_spend_capacity": "$50K-$250K/month",
-                "procurement_process": "Formal Review",
-                "key_personas": [
-                    "VP of Engineering",
-                    "Head of Streaming Infrastructure"
-                ]
+                "cloud_spend_capacity": "$50K-$250K/month"
             }
         }
 

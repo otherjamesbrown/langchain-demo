@@ -33,27 +33,19 @@ from src.tools.models import CompanyInfo
 from src.utils.model_availability import get_available_models
 
 
-# Expected minimum required fields for BitMovin
-REQUIRED_FIELDS = [
+# All fields are treated equally - no distinction between required/optional
+# These are fields we expect to be present for BitMovin validation
+EXPECTED_FIELDS = [
     "company_name",
-    "industry",
     "company_size",
     "headquarters",
     "founded",
-]
-
-# Expected optional fields
-OPTIONAL_FIELDS = [
     "growth_stage",
     "industry_vertical",
     "sub_industry_vertical",
-    "financial_health",
     "business_and_technology_adoption",
-    "primary_workload_philosophy",
     "buyer_journey",
-    "budget_maturity",
     "cloud_spend_capacity",
-    "procurement_process",
 ]
 
 
@@ -81,31 +73,30 @@ def get_available_models_from_database() -> List[Dict[str, Any]]:
     return result
 
 
-def validate_required_fields(company_info: CompanyInfo) -> Dict[str, Any]:
-    """Validate that all required fields are present and correct."""
+def validate_fields(company_info: CompanyInfo) -> Dict[str, Any]:
+    """Validate all fields - no distinction between required/optional."""
     errors = []
     warnings = []
+    present_fields = []
+    missing_fields = []
     
     # Check company_name (case-insensitive)
     if not company_info.company_name:
         errors.append("company_name is missing")
-    elif "bitmovin" not in company_info.company_name.lower():
-        warnings.append(
-            f"company_name mismatch: expected 'Bitmovin' (or variation), got '{company_info.company_name}'"
-        )
-    
-    # Check industry
-    if not company_info.industry or not company_info.industry.strip():
-        errors.append("industry is missing or empty")
-    elif "video" not in company_info.industry.lower() and "streaming" not in company_info.industry.lower():
-        warnings.append(
-            f"industry may be incorrect: expected video/streaming related, got '{company_info.industry}'"
-        )
+        missing_fields.append("company_name")
+    else:
+        present_fields.append("company_name")
+        if "bitmovin" not in company_info.company_name.lower():
+            warnings.append(
+                f"company_name mismatch: expected 'Bitmovin' (or variation), got '{company_info.company_name}'"
+            )
     
     # Check company_size (expected: "51-200 employees" or similar)
     if not company_info.company_size or not company_info.company_size.strip():
         errors.append("company_size is missing or empty")
+        missing_fields.append("company_size")
     else:
+        present_fields.append("company_size")
         # Check for "51-200" range or variations
         has_51 = "51" in company_info.company_size or "50" in company_info.company_size
         has_200 = "200" in company_info.company_size
@@ -117,7 +108,9 @@ def validate_required_fields(company_info: CompanyInfo) -> Dict[str, Any]:
     # Check headquarters (expected: "San Francisco, California, United States" or similar)
     if not company_info.headquarters or not company_info.headquarters.strip():
         errors.append("headquarters is missing or empty")
+        missing_fields.append("headquarters")
     else:
+        present_fields.append("headquarters")
         hq_lower = company_info.headquarters.lower()
         has_sf = "san francisco" in hq_lower or "sf" in hq_lower
         has_ca = "california" in hq_lower or "ca" in hq_lower
@@ -132,20 +125,17 @@ def validate_required_fields(company_info: CompanyInfo) -> Dict[str, Any]:
     # Check founded
     if company_info.founded is None:
         errors.append("founded year is missing")
-    elif company_info.founded != 2013:
-        warnings.append(
-            f"founded year mismatch: expected 2013, got {company_info.founded}"
-        )
+        missing_fields.append("founded")
+    else:
+        present_fields.append("founded")
+        if company_info.founded != 2013:
+            warnings.append(
+                f"founded year mismatch: expected 2013, got {company_info.founded}"
+            )
     
-    return {"errors": errors, "warnings": warnings}
-
-
-def validate_optional_fields(company_info: CompanyInfo) -> Dict[str, Any]:
-    """Validate optional fields if they are present."""
-    present_fields = []
-    missing_fields = []
-    
-    for field_name in OPTIONAL_FIELDS:
+    # Check other fields if present
+    for field_name in ["growth_stage", "industry_vertical", "sub_industry_vertical", 
+                       "business_and_technology_adoption", "buyer_journey", "cloud_spend_capacity"]:
         field_value = getattr(company_info, field_name, None)
         if field_value is not None:
             if isinstance(field_value, str) and field_value.strip():
@@ -160,9 +150,11 @@ def validate_optional_fields(company_info: CompanyInfo) -> Dict[str, Any]:
             missing_fields.append(field_name)
     
     return {
+        "errors": errors,
+        "warnings": warnings,
         "present_fields": present_fields,
         "missing_fields": missing_fields,
-        "coverage": len(present_fields) / len(OPTIONAL_FIELDS) if OPTIONAL_FIELDS else 0,
+        "coverage": len(present_fields) / len(EXPECTED_FIELDS) if EXPECTED_FIELDS else 0,
     }
 
 
@@ -259,12 +251,12 @@ def test_model(model_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     
     company_info: CompanyInfo = result.company_info
     
-    # Validate required fields
-    print(f"\nValidating required fields...")
-    validation = validate_required_fields(company_info)
+    # Validate all fields (no distinction between required/optional)
+    print(f"\nValidating fields...")
+    validation = validate_fields(company_info)
     
     if validation["errors"]:
-        print(f"❌ Required field validation failed:")
+        print(f"❌ Field validation failed:")
         for error in validation["errors"]:
             print(f"   - {error}")
         return {
@@ -279,15 +271,11 @@ def test_model(model_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         for warning in validation["warnings"]:
             print(f"   - {warning}")
     
-    # Validate optional fields
-    print(f"\nValidating optional fields...")
-    optional_validation = validate_optional_fields(company_info)
+    print(f"   Present fields: {len(validation['present_fields'])}/{len(EXPECTED_FIELDS)}")
+    print(f"   Coverage: {validation['coverage']:.1%}")
     
-    print(f"   Present fields: {len(optional_validation['present_fields'])}/{len(OPTIONAL_FIELDS)}")
-    print(f"   Coverage: {optional_validation['coverage']:.1%}")
-    
-    if optional_validation["present_fields"]:
-        print(f"   ✓ Found optional fields: {', '.join(optional_validation['present_fields'])}")
+    if validation["present_fields"]:
+        print(f"   ✓ Found fields: {', '.join(validation['present_fields'])}")
     
     # Print summary
     print(f"\n{'='*70}")
@@ -296,22 +284,23 @@ def test_model(model_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     print(f"  Success: {result.success}")
     print(f"  Execution time: {result.execution_time_seconds:.2f}s")
     print(f"  Iterations: {result.iterations}")
-    print(f"  Required fields: ✅ All present")
-    print(f"  Optional fields: {len(optional_validation['present_fields'])}/{len(OPTIONAL_FIELDS)}")
+    print(f"  Fields present: {len(validation['present_fields'])}/{len(EXPECTED_FIELDS)}")
     
     # Print actual values
     print(f"\n  Extracted values:")
     print(f"    company_name: {company_info.company_name}")
-    print(f"    industry: {company_info.industry}")
     print(f"    company_size: {company_info.company_size}")
     print(f"    headquarters: {company_info.headquarters}")
     print(f"    founded: {company_info.founded}")
     
-    if optional_validation["present_fields"]:
-        print(f"\n  Optional fields:")
-        for field_name in optional_validation["present_fields"]:
-            value = getattr(company_info, field_name)
-            print(f"    {field_name}: {value}")
+    if validation["present_fields"]:
+        other_fields = [f for f in validation["present_fields"] 
+                       if f not in ["company_name", "company_size", "headquarters", "founded"]]
+        if other_fields:
+            print(f"\n  Other fields:")
+            for field_name in other_fields:
+                value = getattr(company_info, field_name)
+                print(f"    {field_name}: {value}")
     
     print(f"{'='*70}")
     
@@ -321,13 +310,12 @@ def test_model(model_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "success": result.success,
         "execution_time": result.execution_time_seconds,
         "iterations": result.iterations,
-        "required_fields_valid": len(validation["errors"]) == 0,
-        "optional_fields_count": len(optional_validation["present_fields"]),
-        "optional_fields_coverage": optional_validation["coverage"],
+        "required_fields_valid": len(validation["errors"]) == 0,  # For backwards compatibility
+        "optional_fields_count": len(validation["present_fields"]),  # All fields counted
+        "optional_fields_coverage": validation["coverage"],
         "warnings": validation["warnings"],
         "company_info": {
             "company_name": company_info.company_name,
-            "industry": company_info.industry,
             "company_size": company_info.company_size,
             "headquarters": company_info.headquarters,
             "founded": company_info.founded,
@@ -342,13 +330,11 @@ def main():
     print("="*70)
     print("\nThis test will run the research agent for BitMovin against")
     print("all available models configured in the database.")
-    print("\nRequired fields:")
+    print("\nExpected fields (all treated equally):")
     print("  - company_name: Bitmovin")
-    print("  - industry: Video Streaming Infrastructure / SaaS")
     print("  - company_size: 51-200 employees")
     print("  - headquarters: San Francisco, California, United States")
     print("  - founded: 2013")
-    print("\nOptional fields (10 total):")
     print("  - growth_stage, industry_vertical, sub_industry_vertical, etc.")
     print("="*70)
     
@@ -392,8 +378,8 @@ def main():
         model_name = result.get("model_name", result.get("model_type", "Unknown"))
         model_type = result["model_type"]
         success = "✅" if result.get("success", False) and result.get("required_fields_valid", False) else "❌"
-        optional_count = result.get("optional_fields_count", 0)
-        print(f"  {success} {model_name} ({model_type.upper()}): {optional_count}/{len(OPTIONAL_FIELDS)} optional fields")
+        field_count = result.get("optional_fields_count", 0)
+        print(f"  {success} {model_name} ({model_type.upper()}): {field_count}/{len(EXPECTED_FIELDS)} fields")
     
     print(f"\n{'='*70}")
     

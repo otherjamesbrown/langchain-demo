@@ -566,8 +566,6 @@ Queue-it"""
 
                                 if info.company_name:
                                     st.write(f"**Name:** {info.company_name}")
-                                if info.industry:
-                                    st.write(f"**Industry:** {info.industry}")
                                 if info.website:
                                     st.write(f"**Website:** {info.website}")
                                 if info.description:
@@ -585,7 +583,6 @@ Queue-it"""
                                     ("Company Size", info.company_size),
                                     ("Industry Vertical", info.industry_vertical),
                                     ("Sub-Industry Vertical", info.sub_industry_vertical),
-                                    ("Financial Health", info.financial_health),
                                     (
                                         "Business & Technology Adoption",
                                         info.business_and_technology_adoption,
@@ -607,16 +604,6 @@ Queue-it"""
                                             st.markdown(
                                                 f"**{label}:** {value or 'Not identified'}"
                                             )
-
-                                if info.products:
-                                    with st.expander("Products"):
-                                        for product in info.products:
-                                            st.write(f"- {product}")
-
-                                if info.competitors:
-                                    with st.expander("Competitors"):
-                                        for competitor in info.competitors:
-                                            st.write(f"- {competitor}")
 
                             # Show raw result details
                             with st.expander("View Raw Details"):

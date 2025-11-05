@@ -32,7 +32,6 @@ class Company(Base):
     website = Column(String(512), nullable=True)
     
     # Company details
-    industry = Column(String(255), nullable=True)
     company_size = Column(String(100), nullable=True)
     company_size_reason = Column(Text, nullable=True)
     headquarters = Column(String(255), nullable=True)
@@ -45,30 +44,16 @@ class Company(Base):
     industry_vertical_reason = Column(Text, nullable=True)
     sub_industry_vertical = Column(String(255), nullable=True)
     sub_industry_vertical_reason = Column(Text, nullable=True)
-    financial_health = Column(String(100), nullable=True)
-    financial_health_reason = Column(Text, nullable=True)
     business_and_technology_adoption = Column(String(255), nullable=True)
     business_and_technology_adoption_reason = Column(Text, nullable=True)
-    primary_workload_philosophy = Column(String(255), nullable=True)
-    primary_workload_philosophy_reason = Column(Text, nullable=True)
     buyer_journey = Column(String(100), nullable=True)
     buyer_journey_reason = Column(Text, nullable=True)
-    budget_maturity = Column(String(100), nullable=True)
-    budget_maturity_reason = Column(Text, nullable=True)
     cloud_spend_capacity = Column(String(100), nullable=True)
     cloud_spend_capacity_reason = Column(Text, nullable=True)
-    procurement_process = Column(String(100), nullable=True)
-    procurement_process_reason = Column(Text, nullable=True)
     
     # Financial information
     revenue = Column(String(100), nullable=True)
     funding_stage = Column(String(100), nullable=True)
-    
-    # Products and market
-    products = Column(JSON, nullable=True)  # List of products
-    competitors = Column(JSON, nullable=True)  # List of competitors
-    key_personas = Column(JSON, nullable=True)
-    key_personas_reason = Column(Text, nullable=True)
     
     # Metadata
     description = Column(Text, nullable=True)
@@ -504,27 +489,19 @@ class LLMOutputValidation(Base):
     
     # All CompanyInfo fields as columns
     company_name_field = Column(String(255), nullable=True)
-    industry = Column(String(255), nullable=True)
     company_size = Column(String(100), nullable=True)
     headquarters = Column(String(255), nullable=True)
     founded = Column(Integer, nullable=True)
     description = Column(Text, nullable=True)
     website = Column(String(512), nullable=True)
-    products = Column(JSON, nullable=True)  # List[str]
-    competitors = Column(JSON, nullable=True)  # List[str]
     revenue = Column(String(100), nullable=True)
     funding_stage = Column(String(100), nullable=True)
     growth_stage = Column(String(100), nullable=True)
     industry_vertical = Column(String(255), nullable=True)
     sub_industry_vertical = Column(String(255), nullable=True)
-    financial_health = Column(String(100), nullable=True)
     business_and_technology_adoption = Column(String(255), nullable=True)
-    primary_workload_philosophy = Column(String(255), nullable=True)
     buyer_journey = Column(String(100), nullable=True)
-    budget_maturity = Column(String(100), nullable=True)
     cloud_spend_capacity = Column(String(100), nullable=True)
-    procurement_process = Column(String(100), nullable=True)
-    key_personas = Column(JSON, nullable=True)  # List[str]
     
     # Execution metadata
     execution_time_seconds = Column(Float, nullable=True)

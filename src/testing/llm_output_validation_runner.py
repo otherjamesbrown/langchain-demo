@@ -310,27 +310,19 @@ class LLMOutputValidationRunner:
             model_name=model_name,
             model_provider=model_provider,
             company_name_field=company_info.company_name,
-            industry=company_info.industry,
             company_size=company_info.company_size,
             headquarters=company_info.headquarters,
             founded=company_info.founded,
             description=company_info.description,
             website=company_info.website,
-            products=company_info.products or [],
-            competitors=company_info.competitors or [],
             revenue=company_info.revenue,
             funding_stage=company_info.funding_stage,
             growth_stage=company_info.growth_stage,
             industry_vertical=company_info.industry_vertical,
             sub_industry_vertical=company_info.sub_industry_vertical,
-            financial_health=company_info.financial_health,
             business_and_technology_adoption=company_info.business_and_technology_adoption,
-            primary_workload_philosophy=company_info.primary_workload_philosophy,
             buyer_journey=company_info.buyer_journey,
-            budget_maturity=company_info.budget_maturity,
             cloud_spend_capacity=company_info.cloud_spend_capacity,
-            procurement_process=company_info.procurement_process,
-            key_personas=company_info.key_personas or [],
             execution_time_seconds=result.execution_time_seconds,
             iterations=result.iterations,
             success=result.success,
@@ -404,27 +396,19 @@ class LLMOutputValidationRunner:
             model_name=source_output.model_name,
             model_provider=source_output.model_provider,
             company_name_field=source_output.company_name_field,
-            industry=source_output.industry,
             company_size=source_output.company_size,
             headquarters=source_output.headquarters,
             founded=source_output.founded,
             description=source_output.description,
             website=source_output.website,
-            products=source_output.products,
-            competitors=source_output.competitors,
             revenue=source_output.revenue,
             funding_stage=source_output.funding_stage,
             growth_stage=source_output.growth_stage,
             industry_vertical=source_output.industry_vertical,
             sub_industry_vertical=source_output.sub_industry_vertical,
-            financial_health=source_output.financial_health,
             business_and_technology_adoption=source_output.business_and_technology_adoption,
-            primary_workload_philosophy=source_output.primary_workload_philosophy,
             buyer_journey=source_output.buyer_journey,
-            budget_maturity=source_output.budget_maturity,
             cloud_spend_capacity=source_output.cloud_spend_capacity,
-            procurement_process=source_output.procurement_process,
-            key_personas=source_output.key_personas,
             execution_time_seconds=source_output.execution_time_seconds,
             iterations=source_output.iterations,
             success=source_output.success,
@@ -561,32 +545,23 @@ class LLMOutputValidationRunner:
         Get list of all CompanyInfo fields to grade.
         
         Educational: This returns all fields from the CompanyInfo schema that
-        should be evaluated. Required fields (company_name, industry, etc.) are
-        typically weighted more heavily in accuracy calculations.
+        should be evaluated. All fields are treated equally in accuracy calculations.
         """
         return [
             "company_name_field",  # Note: stored as company_name_field in DB
-            "industry",
             "company_size",
             "headquarters",
             "founded",
             "description",
             "website",
-            "products",
-            "competitors",
             "revenue",
             "funding_stage",
             "growth_stage",
             "industry_vertical",
             "sub_industry_vertical",
-            "financial_health",
             "business_and_technology_adoption",
-            "primary_workload_philosophy",
             "buyer_journey",
-            "budget_maturity",
             "cloud_spend_capacity",
-            "procurement_process",
-            "key_personas",
         ]
     
     def _grade_field(
@@ -776,23 +751,13 @@ class LLMOutputValidationRunner:
             all_scores = [r["score"] for r in field_scores.values()]
             overall_accuracy = sum(all_scores) / len(all_scores) if all_scores else 0.0
             
-            # Required fields (core company info)
-            required_fields = ["company_name_field", "industry", "company_size", "headquarters", "founded"]
-            required_scores = [field_scores[f]["score"] for f in required_fields if f in field_scores]
-            required_fields_accuracy = sum(required_scores) / len(required_scores) if required_scores else 0.0
+            # All fields are treated equally - no distinction between required/optional
+            # For backwards compatibility, set required/optional accuracies to overall accuracy
+            required_fields_accuracy = overall_accuracy
+            optional_fields_accuracy = overall_accuracy
             
-            # Optional fields (all others)
-            optional_fields = [f for f in fields_to_grade if f not in required_fields]
-            optional_scores = [field_scores[f]["score"] for f in optional_fields if f in field_scores]
-            optional_fields_accuracy = sum(optional_scores) / len(optional_scores) if optional_scores else 0.0
-            
-            # Weighted accuracy (critical fields count 2x)
-            critical_fields = ["industry", "company_size", "headquarters"]
-            weighted_scores = []
-            for field_name, result in field_scores.items():
-                weight = 2.0 if field_name in critical_fields else 1.0
-                weighted_scores.extend([result["score"]] * int(weight))
-            weighted_accuracy = sum(weighted_scores) / len(weighted_scores) if weighted_scores else 0.0
+            # Weighted accuracy (no special weighting, same as overall)
+            weighted_accuracy = overall_accuracy
             
             # Calculate grading cost
             total_grading_tokens = total_grading_input_tokens + total_grading_output_tokens
@@ -1097,27 +1062,10 @@ class LLMOutputValidationRunner:
             overall_accuracies = [r.overall_accuracy for r in all_grading_results]
             aggregated_accuracy["overall"] = sum(overall_accuracies) / len(overall_accuracies) if overall_accuracies else 0.0
             
-            # Aggregate required fields accuracy
-            required_accuracies = [
-                r.required_fields_accuracy 
-                for r in all_grading_results 
-                if r.required_fields_accuracy is not None
-            ]
-            aggregated_accuracy["required_fields"] = (
-                sum(required_accuracies) / len(required_accuracies) 
-                if required_accuracies else None
-            )
-            
-            # Aggregate optional fields accuracy
-            optional_accuracies = [
-                r.optional_fields_accuracy 
-                for r in all_grading_results 
-                if r.optional_fields_accuracy is not None
-            ]
-            aggregated_accuracy["optional_fields"] = (
-                sum(optional_accuracies) / len(optional_accuracies) 
-                if optional_accuracies else None
-            )
+            # All fields treated equally - required/optional both use overall accuracy
+            # For backwards compatibility, set to overall accuracy
+            aggregated_accuracy["required_fields"] = aggregated_accuracy["overall"]
+            aggregated_accuracy["optional_fields"] = aggregated_accuracy["overall"]
             
             # Aggregate weighted accuracy
             weighted_accuracies = [

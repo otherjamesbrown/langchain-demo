@@ -423,8 +423,6 @@ if execute_button:
 
                             if info.company_name:
                                 st.write(f"**Name:** {info.company_name}")
-                            if info.industry:
-                                st.write(f"**Industry:** {info.industry}")
                             if info.website:
                                 st.write(f"**Website:** {info.website}")
                             if info.description:
@@ -442,7 +440,6 @@ if execute_button:
                                 ("Company Size", info.company_size),
                                 ("Industry Vertical", info.industry_vertical),
                                 ("Sub-Industry Vertical", info.sub_industry_vertical),
-                                ("Financial Health", info.financial_health),
                                 (
                                     "Business & Technology Adoption",
                                     info.business_and_technology_adoption,
@@ -465,33 +462,19 @@ if execute_button:
                                             f"**{label}:** {value or 'Not identified'}"
                                         )
 
-                            if info.products:
-                                with st.expander("Products"):
-                                    for product in info.products:
-                                        st.write(f"- {product}")
-
-                            if info.competitors:
-                                with st.expander("Competitors"):
-                                    for competitor in info.competitors:
-                                        st.write(f"- {competitor}")
-
                             gtm_fields = [
                                 ("Growth Stage", info.growth_stage),
                                 ("Industry Vertical", info.industry_vertical),
                                 ("Sub-Industry Vertical", info.sub_industry_vertical),
-                                ("Financial Health", info.financial_health),
                                 (
                                     "Business & Technology Adoption",
                                     info.business_and_technology_adoption,
                                 ),
-                                ("Primary Workload Philosophy", info.primary_workload_philosophy),
                                 ("Buyer Journey", info.buyer_journey),
-                                ("Budget Maturity", info.budget_maturity),
                                 ("Cloud Spend Capacity", info.cloud_spend_capacity),
-                                ("Procurement Process", info.procurement_process),
                             ]
 
-                            has_gtm_data = any(value for _, value in gtm_fields) or bool(info.key_personas)
+                            has_gtm_data = any(value for _, value in gtm_fields)
 
                             if has_gtm_data:
                                 with st.expander("Go-To-Market Profiling"):
@@ -499,11 +482,6 @@ if execute_button:
                                         if not value:
                                             continue
                                         st.markdown(f"**{label}:** {value or 'Not identified'}")
-
-                                    if info.key_personas:
-                                        st.markdown("**Key Personas:**")
-                                        for persona in info.key_personas:
-                                            st.write(f"- {persona}")
 
                         # Show raw result details
                         with st.expander("View Raw Result"):

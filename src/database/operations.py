@@ -475,19 +475,12 @@ def save_company_info(company_info: "CompanyInfo", session: Optional[Session] = 
         if existing:
             # Update existing record
             for key, value in company_info.model_dump().items():
-                if key in ["products", "competitors", "key_personas"]:
-                    setattr(existing, key, value if value else [])
-                else:
-                    setattr(existing, key, value)
+                setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
             result = existing
         else:
             # Create new record
             company_dict = company_info.model_dump()
-            # Handle list fields
-            company_dict["products"] = company_dict.get("products", [])
-            company_dict["competitors"] = company_dict.get("competitors", [])
-            company_dict["key_personas"] = company_dict.get("key_personas", [])
             
             new_company = Company(**company_dict)
             session.add(new_company)

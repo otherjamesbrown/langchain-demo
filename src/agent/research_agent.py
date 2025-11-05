@@ -577,14 +577,13 @@ class ResearchAgent:
             "IMPORTANT RESEARCH PROCESS:\n"
             "1. Start with a general company overview search\n"
             "2. Make additional searches for missing information\n"
-            "3. Search for specific data points: size, revenue, competitors, funding\n"
+            "3. Search for specific data points: size, revenue, funding\n"
             "4. Verify you have comprehensive information before finishing\n"
             "5. Make AT LEAST 3-4 web searches to ensure thorough research\n\n"
             "DO NOT provide a final answer until you have:\n"
             "- Company basics (name, website, location, founded)\n"
-            "- Business details (products, services, description)\n"
-            "- Size/scale data (employees, revenue if available)\n"
-            "- Market context (competitors, industry position)\n\n"
+            "- Business details (description)\n"
+            "- Size/scale data (employees, revenue if available)\n\n"
             "Research instructions (GTM playbook summary):\n"
             f"{self._instruction_summary}\n\n"
             "Classification reference (choose labels from prompts/company-profiling-guide.md):\n"
@@ -756,12 +755,9 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
                 return None
         return None
 
-    industry = extract_text("Industry") or "Unknown"
     company_size = extract_text("Company Size") or "Unknown"
     headquarters = extract_text("Headquarters") or "Unknown"
     founded = extract_year("Founded")
-    products = extract_list("Products")
-    competitors = extract_list("Competitors")
     description = extract_text("Company Description") or raw_output[:500].strip()
     website = extract_text("Website")
     revenue = extract_text("Revenue") or None
@@ -784,7 +780,6 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
     growth_stage = extract_classification("Growth Stage")
     industry_vertical = extract_classification("Industry Vertical")
     sub_industry_vertical = extract_classification("Sub-Industry Vertical")
-    financial_health = extract_classification("Financial Health")
     business_and_technology_adoption = extract_classification(
         "Business & Technology Adoption",
         aliases=("Business and Technology Adoption",),
@@ -794,12 +789,9 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
         return CompanyInfo.model_validate(
             {
                 "company_name": company_name,
-                "industry": industry,
                 "company_size": company_size,
                 "headquarters": headquarters,
                 "founded": founded,
-                "products": products,
-                "competitors": competitors,
                 "description": description,
                 "website": website or None,
                 "revenue": revenue,
@@ -807,7 +799,6 @@ def _fallback_company_info(raw_output: str, company_name: str) -> Optional[Compa
                 "growth_stage": growth_stage,
                 "industry_vertical": industry_vertical,
                 "sub_industry_vertical": sub_industry_vertical,
-                "financial_health": financial_health,
                 "business_and_technology_adoption": business_and_technology_adoption,
             }
         )
