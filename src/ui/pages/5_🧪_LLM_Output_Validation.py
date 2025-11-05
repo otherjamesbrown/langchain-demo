@@ -225,7 +225,7 @@ st.title("🧪 LLM Output Validation")
 session = init_streamlit_db()
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["Run Test", "Compare Versions", "Cost Analysis"])
+tab1, tab2, tab3, tab4 = st.tabs(["Run Test", "Compare Versions", "Cost Analysis", "Review Test"])
 
 # Tab 1: Run Test
 with tab1:
@@ -401,6 +401,210 @@ with tab3:
                     display_cost_analysis(cost_analysis)
                 except Exception as e:
                     st.error(f"❌ Error loading cost analysis: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+# Tab 4: Review Test
+with tab4:
+    st.header("Review Test")
+    
+    # Get all test runs for dropdown
+    from src.database.schema import TestRun, LLMOutputValidation, LLMOutputValidationResult
+    
+    test_runs = session.query(TestRun).order_by(
+        TestRun.created_at.desc()
+    ).all()
+    
+    if not test_runs:
+        st.warning("⚠️ No test runs found. Run some tests first!")
+    else:
+        # Create dropdown options with descriptive labels
+        test_run_options = {}
+        for tr in test_runs:
+            # Create descriptive label
+            date_str = tr.created_at.strftime("%Y-%m-%d %H:%M") if tr.created_at else "Unknown"
+            label = f"Run #{tr.id} - {tr.company_name} ({tr.prompt_name}@{tr.prompt_version}) - {date_str}"
+            test_run_options[label] = tr.id
+        
+        selected_label = st.selectbox(
+            "Select Test Run",
+            options=list(test_run_options.keys()),
+            help="Select a test run to review its results"
+        )
+        
+        selected_test_run_id = test_run_options[selected_label]
+        
+        if selected_test_run_id:
+            with st.spinner("Loading test run data..."):
+                try:
+                    # Get the test run
+                    test_run = session.query(TestRun).filter(
+                        TestRun.id == selected_test_run_id
+                    ).first()
+                    
+                    if not test_run:
+                        st.error(f"Test run {selected_test_run_id} not found")
+                    else:
+                        # Display test run info
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Company", test_run.company_name)
+                        with col2:
+                            st.metric("Prompt", f"{test_run.prompt_name}@{test_run.prompt_version}")
+                        with col3:
+                            st.metric("Test Run ID", test_run.id)
+                        
+                        # Get all outputs for this test run
+                        all_outputs = session.query(LLMOutputValidation).filter(
+                            LLMOutputValidation.test_run_id == selected_test_run_id
+                        ).all()
+                        
+                        if not all_outputs:
+                            st.info("No outputs found for this test run.")
+                        else:
+                            # Get Gemini Pro model name (for identifying ground truth)
+                            runner = LLMOutputValidationRunner()
+                            gemini_pro_model_name = runner.gemini_pro_model_name
+                            
+                            # Find ground truth (Gemini Pro output)
+                            ground_truth_output = None
+                            other_outputs = []
+                            
+                            for output in all_outputs:
+                                if output.model_name == gemini_pro_model_name and output.model_provider == "gemini":
+                                    ground_truth_output = output
+                                else:
+                                    other_outputs.append(output)
+                            
+                            if not ground_truth_output:
+                                st.warning("⚠️ Ground truth (Gemini Pro) output not found for this test run.")
+                            else:
+                                # Get grading results for other outputs
+                                grading_results = {}
+                                for output in other_outputs:
+                                    result = session.query(LLMOutputValidationResult).filter(
+                                        LLMOutputValidationResult.output_id == output.id,
+                                        LLMOutputValidationResult.test_run_id == selected_test_run_id
+                                    ).first()
+                                    
+                                    if result:
+                                        grading_results[output.id] = {
+                                            'output': output,
+                                            'result': result,
+                                            'model_name': output.model_name,
+                                            'model_provider': output.model_provider
+                                        }
+                                
+                                # Define all CompanyInfo fields (questions)
+                                # These match the LLMOutputValidation schema columns
+                                field_mapping = {
+                                    'company_name_field': 'Company Name',
+                                    'industry': 'Industry',
+                                    'company_size': 'Company Size',
+                                    'headquarters': 'Headquarters',
+                                    'founded': 'Founded',
+                                    'description': 'Description',
+                                    'website': 'Website',
+                                    'products': 'Products',
+                                    'competitors': 'Competitors',
+                                    'revenue': 'Revenue',
+                                    'funding_stage': 'Funding Stage',
+                                    'growth_stage': 'Growth Stage',
+                                    'industry_vertical': 'Industry Vertical',
+                                    'sub_industry_vertical': 'Sub-Industry Vertical',
+                                    'financial_health': 'Financial Health',
+                                    'business_and_technology_adoption': 'Business & Technology Adoption',
+                                    'primary_workload_philosophy': 'Primary Workload Philosophy',
+                                    'buyer_journey': 'Buyer Journey',
+                                    'budget_maturity': 'Budget Maturity',
+                                    'cloud_spend_capacity': 'Cloud Spend Capacity',
+                                    'procurement_process': 'Procurement Process',
+                                    'key_personas': 'Key Personas',
+                                }
+                                
+                                # Build table data
+                                table_data = []
+                                
+                                for field_key, field_label in field_mapping.items():
+                                    # Get ground truth value
+                                    ground_truth_value = getattr(ground_truth_output, field_key, None)
+                                    
+                                    # Format ground truth value
+                                    if ground_truth_value is None:
+                                        gt_display = "N/A"
+                                    elif isinstance(ground_truth_value, list):
+                                        gt_display = ", ".join(str(v) for v in ground_truth_value) if ground_truth_value else "N/A"
+                                    else:
+                                        gt_display = str(ground_truth_value)
+                                    
+                                    # Start row with question and ground truth
+                                    row = {
+                                        'Question': field_label,
+                                        'Ground Truth': gt_display
+                                    }
+                                    
+                                    # Add columns for each model output
+                                    for output_id, grading_data in grading_results.items():
+                                        output = grading_data['output']
+                                        result = grading_data['result']
+                                        model_name = grading_data['model_name']
+                                        
+                                        # Get model's answer
+                                        model_answer = getattr(output, field_key, None)
+                                        
+                                        # Format model answer
+                                        if model_answer is None:
+                                            answer_display = "N/A"
+                                        elif isinstance(model_answer, list):
+                                            answer_display = ", ".join(str(v) for v in model_answer) if model_answer else "N/A"
+                                        else:
+                                            answer_display = str(model_answer)
+                                        
+                                        # Get accuracy for this field from field_accuracy_scores
+                                        field_scores = result.field_accuracy_scores or {}
+                                        field_score_data = field_scores.get(field_key, {})
+                                        accuracy = field_score_data.get('score', None)
+                                        
+                                        # Format accuracy
+                                        if accuracy is not None:
+                                            accuracy_display = f"{accuracy:.1f}%"
+                                        else:
+                                            accuracy_display = "N/A"
+                                        
+                                        # Create column names for this model
+                                        answer_col = f"{model_name} - Answer"
+                                        accuracy_col = f"{model_name} - Accuracy"
+                                        
+                                        row[answer_col] = answer_display
+                                        row[accuracy_col] = accuracy_display
+                                    
+                                    table_data.append(row)
+                                
+                                # Display table
+                                if table_data:
+                                    df = pd.DataFrame(table_data)
+                                    st.dataframe(df, use_container_width=True, hide_index=True)
+                                else:
+                                    st.info("No data to display.")
+                                
+                                # Show summary stats
+                                if grading_results:
+                                    st.subheader("📊 Summary")
+                                    summary_cols = st.columns(min(len(grading_results), 4))
+                                    
+                                    for idx, (output_id, grading_data) in enumerate(grading_results.items()):
+                                        if idx < len(summary_cols):
+                                            with summary_cols[idx]:
+                                                result = grading_data['result']
+                                                model_name = grading_data['model_name']
+                                                
+                                                st.metric(
+                                                    f"{model_name} Overall",
+                                                    f"{result.overall_accuracy:.1f}%" if result.overall_accuracy else "N/A"
+                                                )
+                                
+                except Exception as e:
+                    st.error(f"❌ Error loading test run: {e}")
                     import traceback
                     st.code(traceback.format_exc())
 
