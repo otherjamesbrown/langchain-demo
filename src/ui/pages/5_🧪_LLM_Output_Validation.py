@@ -279,6 +279,70 @@ with tab1:
             help="Force regeneration of ground truth even if cached"
         )
         
+        # Model selection section
+        st.divider()
+        st.subheader("🤖 Select Models to Test")
+        
+        # Get available models and filter out Gemini Pro early
+        # Initialize runner to get Gemini Pro model name
+        runner = LLMOutputValidationRunner(
+            prompt_version_id=selected_prompt['id'],
+            test_run_description=test_run_description or None,
+        )
+        gemini_pro_model_name = runner.gemini_pro_model_name
+        
+        # Get available models
+        available_models = get_available_models(session=session, include_reasons=False)
+        
+        # Filter out Gemini Pro from available models for selection
+        from src.database.schema import ModelConfiguration
+        testable_models = []
+        for model_dict in available_models:
+            # Skip Gemini Pro (used as ground truth)
+            if (model_dict['provider'] == 'gemini' and 
+                model_dict.get('api_identifier') == gemini_pro_model_name):
+                continue
+            
+            config = session.query(ModelConfiguration).filter(
+                ModelConfiguration.id == model_dict["config_id"]
+            ).first()
+            
+            if config:
+                testable_models.append({
+                    'config': config,
+                    'display_name': f"{model_dict['name']} ({model_dict['provider']})",
+                    'model_dict': model_dict
+                })
+        
+        if not testable_models:
+            st.warning("⚠️ No testable models found. Please configure models in the database.")
+            model_selection = []
+        else:
+            # Create multiselect for model selection
+            model_options = {m['display_name']: m for m in testable_models}
+            
+            # Default to all models selected
+            default_selected = list(model_options.keys())
+            
+            selected_model_names = st.multiselect(
+                "Select Models",
+                options=list(model_options.keys()),
+                default=default_selected,
+                help="Select which models to run tests against. Gemini Pro is automatically used as ground truth and excluded from this list."
+            )
+            
+            # Convert selected models to ModelConfiguration objects
+            model_selection = [
+                model_options[name]['config'] 
+                for name in selected_model_names
+            ]
+            
+            # Display info about selected models
+            if selected_model_names:
+                st.info(f"✅ {len(selected_model_names)} model(s) selected for testing")
+            else:
+                st.info("ℹ️ No models selected. All available models will be tested.")
+        
         # Run button
         if st.button("🚀 Run Test", type="primary"):
             if not company_name:
@@ -286,36 +350,19 @@ with tab1:
             else:
                 with st.spinner("Running test... This may take a few minutes."):
                     try:
-                        # Get available models
-                        available_models = get_available_models(session=session, include_reasons=False)
-                        
-                        # Initialize runner
-                        runner = LLMOutputValidationRunner(
+                        # Create fresh runner for this test run
+                        test_runner = LLMOutputValidationRunner(
                             prompt_version_id=selected_prompt['id'],
                             test_run_description=test_run_description or None,
                         )
                         
-                        # Get Gemini Pro model name
-                        gemini_pro_model_name = runner.gemini_pro_model_name
-                        
-                        # Filter out Gemini Pro from other models
-                        from src.database.schema import ModelConfiguration
-                        other_models = []
-                        for model_dict in available_models:
-                            if (model_dict['provider'] == 'gemini' and 
-                                model_dict.get('api_identifier') == gemini_pro_model_name):
-                                continue
-                            
-                            config = session.query(ModelConfiguration).filter(
-                                ModelConfiguration.id == model_dict["config_id"]
-                            ).first()
-                            if config:
-                                other_models.append(config)
+                        # Use selected models, or None to run all available models
+                        other_models = model_selection if model_selection else None
                         
                         # Run test
-                        result = runner.run_test(
+                        result = test_runner.run_test(
                             company_name=company_name,
-                            other_models=other_models if other_models else None,
+                            other_models=other_models,
                             force_refresh=force_refresh,
                             max_iterations=max_iterations,
                             test_suite_name=test_suite_name or None,
