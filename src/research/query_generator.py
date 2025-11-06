@@ -3,12 +3,17 @@ Query generator for structured research queries.
 
 This module generates search queries for companies based on templates,
 enabling systematic and reproducible research.
+
+LangSmith Integration:
+- All query generation operations are traced with phase:search-collection tags
+- Tracks query generation time and success rates
 """
 
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from src.database.schema import ResearchQuery
 from src.utils.database import get_db_session
+from src.utils.monitoring import langsmith_phase_trace
 from sqlalchemy.orm import Session
 
 
@@ -63,6 +68,8 @@ def generate_queries(
     """
     Generate research queries for a company based on templates.
     
+    This function is traced with LangSmith using phase:search-collection tags.
+    
     Args:
         company_name: Name of the company to research
         templates: List of QueryTemplate objects. If None, uses DEFAULT_QUERY_TEMPLATES
@@ -74,26 +81,36 @@ def generate_queries(
     if templates is None:
         templates = DEFAULT_QUERY_TEMPLATES
     
-    with get_db_session(session) as db_session:
-        try:
-            queries = []
-            for template in templates:
-                query_text = template.template.format(company=company_name)
+    # Trace query generation with Phase 1 tags
+    with langsmith_phase_trace(
+        phase="search-collection",
+        company_name=company_name
+    ) as trace:
+        trace["metadata"]["num_templates"] = len(templates)
+        trace["metadata"]["query_types"] = [t.query_type for t in templates]
+        
+        with get_db_session(session) as db_session:
+            try:
+                queries = []
+                for template in templates:
+                    query_text = template.template.format(company=company_name)
+                    
+                    query = ResearchQuery(
+                        company_name=company_name,
+                        query_text=query_text,
+                        query_type=template.query_type,
+                        status="pending"
+                    )
+                    queries.append(query)
+                    db_session.add(query)
                 
-                query = ResearchQuery(
-                    company_name=company_name,
-                    query_text=query_text,
-                    query_type=template.query_type,
-                    status="pending"
-                )
-                queries.append(query)
-                db_session.add(query)
-            
-            db_session.commit()
-            return queries
-        except Exception as e:
-            db_session.rollback()
-            raise Exception(f"Failed to generate queries: {str(e)}")
+                db_session.commit()
+                trace["metadata"]["queries_generated"] = len(queries)
+                return queries
+            except Exception as e:
+                db_session.rollback()
+                trace["metadata"]["error"] = str(e)
+                raise Exception(f"Failed to generate queries: {str(e)}")
 
 
 def generate_queries_for_companies(
@@ -103,6 +120,9 @@ def generate_queries_for_companies(
     """
     Generate queries for multiple companies.
     
+    This function is traced with LangSmith using phase:search-collection tags.
+    Each company's query generation is traced individually.
+    
     Args:
         company_names: List of company names
         templates: Optional query templates
@@ -110,12 +130,21 @@ def generate_queries_for_companies(
     Returns:
         Dictionary mapping company names to their ResearchQuery lists
     """
-    with get_db_session() as session:
-        results = {}
-        for company_name in company_names:
-            queries = generate_queries(company_name, templates, session)
-            results[company_name] = queries
-        return results
+    # Trace batch query generation
+    with langsmith_phase_trace(
+        phase="search-collection",
+        company_name="batch"
+    ) as trace:
+        trace["metadata"]["num_companies"] = len(company_names)
+        trace["metadata"]["companies"] = company_names
+        
+        with get_db_session() as session:
+            results = {}
+            for company_name in company_names:
+                queries = generate_queries(company_name, templates, session)
+                results[company_name] = queries
+            trace["metadata"]["total_queries"] = sum(len(q) for q in results.values())
+            return results
 
 
 def get_pending_queries(
