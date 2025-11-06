@@ -2,6 +2,8 @@
 
 A production-ready LangChain agent for automated company research that runs on Linode GPU instances using local LLMs.
 
+> **✨ Latest Update (2025-11-06)**: LangSmith Phase 1 Complete! Comprehensive observability with automatic tracing, cost tracking, and performance metrics now operational. See [prd/prd-in-process/SUMMARY.md](prd/prd-in-process/SUMMARY.md) for details.
+
 ## Overview
 
 This project implements a two-phase research architecture that:
