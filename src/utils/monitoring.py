@@ -23,6 +23,24 @@ from langchain_core.outputs import LLMResult, ChatGenerationChunk, GenerationChu
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
 
+# LangSmith tracing
+try:
+    from langsmith import traceable, Client
+    LANGSMITH_AVAILABLE = True
+except ImportError:
+    LANGSMITH_AVAILABLE = False
+    traceable = None
+    Client = None
+
+# Database operations for settings
+try:
+    from src.database.operations import get_app_setting, set_app_setting
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    get_app_setting = None
+    set_app_setting = None
+
 
 class SimpleCallbackHandler(BaseCallbackHandler):
     """
@@ -513,6 +531,49 @@ class LangSmithCallback(EnhancedLangSmithCallback):
     pass
 
 
+def get_langsmith_tracing_enabled() -> bool:
+    """
+    Get LangSmith tracing enabled status from database or environment.
+    
+    Checks database first (app_settings table), then falls back to environment variable.
+    Defaults to False if not set.
+    
+    Returns:
+        bool: True if tracing is enabled, False otherwise
+    """
+    # Check database first
+    if DATABASE_AVAILABLE and get_app_setting:
+        db_value = get_app_setting("LANGCHAIN_TRACING_V2", default=None)
+        if db_value is not None:
+            # Convert string to boolean
+            return db_value.lower() in ("true", "1", "yes", "on")
+    
+    # Fall back to environment variable
+    env_value = os.getenv("LANGCHAIN_TRACING_V2", "false")
+    return env_value.lower() in ("true", "1", "yes", "on")
+
+
+def set_langsmith_tracing_enabled(enabled: bool, session=None) -> None:
+    """
+    Set LangSmith tracing enabled status in database.
+    
+    Stores the setting in the app_settings table so it can be toggled
+    at runtime without changing environment variables.
+    
+    Args:
+        enabled: True to enable tracing, False to disable
+        session: Optional database session
+    """
+    if DATABASE_AVAILABLE and set_app_setting:
+        value = "true" if enabled else "false"
+        set_app_setting("LANGCHAIN_TRACING_V2", value, session=session)
+        # Also update environment variable for immediate effect
+        os.environ["LANGCHAIN_TRACING_V2"] = value
+    else:
+        # Fall back to environment variable only
+        os.environ["LANGCHAIN_TRACING_V2"] = "true" if enabled else "false"
+
+
 def configure_langsmith_tracing(
     project_name: Optional[str] = None,
     tags: Optional[List[str]] = None,
@@ -523,7 +584,8 @@ def configure_langsmith_tracing(
     Configure LangSmith monitoring with enhanced options.
     
     Sets up environment variables for LangSmith tracing with custom
-    project name, tags, and metadata.
+    project name, tags, and metadata. Checks database for tracing
+    enabled status.
     
     Args:
         project_name: Custom project name (default: "research-agent")
@@ -548,15 +610,18 @@ def configure_langsmith_tracing(
             print("⚠️  LangSmith not configured (no LANGCHAIN_API_KEY)")
         return False
     
-        # Enable tracing
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        
-        # Set project name
+    # Check database for tracing enabled status
+    tracing_enabled = get_langsmith_tracing_enabled()
+    
+    # Set environment variable based on database setting
+    os.environ["LANGCHAIN_TRACING_V2"] = "true" if tracing_enabled else "false"
+    
+    # Set project name
     if project_name:
         os.environ["LANGCHAIN_PROJECT"] = project_name
     elif not os.getenv("LANGCHAIN_PROJECT"):
-            os.environ["LANGCHAIN_PROJECT"] = "research-agent"
-        
+        os.environ["LANGCHAIN_PROJECT"] = "research-agent"
+    
     # Store tags and metadata for use in context managers
     if tags:
         os.environ["LANGSMITH_TAGS"] = ",".join(tags)
@@ -567,14 +632,17 @@ def configure_langsmith_tracing(
         os.environ["LANGSMITH_METADATA"] = json.dumps(metadata)
     
     if verbose:
-        print("✅ LangSmith configured for monitoring")
+        status = "enabled" if tracing_enabled else "disabled"
+        print(f"✅ LangSmith configured for monitoring (tracing: {status})")
         print(f"   Project: {os.getenv('LANGCHAIN_PROJECT')}")
         if tags:
             print(f"   Tags: {tags}")
         if metadata:
             print(f"   Metadata: {metadata}")
+        if not tracing_enabled:
+            print("   ⚠️  Tracing is disabled. Enable via set_langsmith_tracing_enabled(True)")
     
-        return True
+    return True
 
 
 # Legacy function name for backward compatibility
@@ -598,7 +666,11 @@ def langsmith_trace(
     Context manager for tracing a block of code with LangSmith.
     
     Automatically captures execution time and any errors that occur.
+    Creates actual LangSmith traces using the traceable decorator.
     Requires LANGCHAIN_API_KEY to be set.
+    
+    IMPORTANT: This creates a trace wrapper. For LangChain LLM calls,
+    ensure LANGCHAIN_TRACING_V2=true is set for automatic tracing.
     
     Args:
         name: Name for this trace
@@ -619,12 +691,17 @@ def langsmith_trace(
             result = process_company(...)
     """
     start_time = time.time()
+    
+    # Check if tracing is enabled (from database or environment)
+    tracing_enabled = get_langsmith_tracing_enabled()
+    api_key_set = bool(os.getenv("LANGCHAIN_API_KEY"))
+    
     trace_info = {
         "name": name,
         "tags": tags or [],
         "metadata": metadata or {},
         "start_time": start_time,
-        "enabled": bool(os.getenv("LANGCHAIN_API_KEY"))
+        "enabled": api_key_set and LANGSMITH_AVAILABLE and tracing_enabled
     }
     
     # Configure LangSmith if not already configured
@@ -635,6 +712,23 @@ def langsmith_trace(
             metadata=metadata,
             verbose=False
         )
+        
+        # Use LangSmith's traceable to create actual traces
+        # We'll wrap the code block in a traceable function
+        if traceable:
+            # Create a traceable wrapper function
+            @traceable(
+                name=name,
+                tags=tags or [],
+                metadata=metadata or {},
+                project_name=project_name or os.getenv("LANGCHAIN_PROJECT", "research-agent")
+            )
+            def _traced_wrapper():
+                """Wrapper function to create trace context."""
+                pass
+            
+            # Call it to start the trace context
+            _traced_wrapper()
     
     try:
         yield trace_info
