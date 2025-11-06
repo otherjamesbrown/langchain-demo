@@ -510,7 +510,7 @@ class LangSmithCallback(EnhancedLangSmithCallback):
     Maintained for backward compatibility. New code should use
     EnhancedLangSmithCallback directly.
     """
-            pass
+    pass
 
 
 def configure_langsmith_tracing(
